@@ -19,3 +19,9 @@ Part 2 adds tenant-scoped clients, contacts, internal activity, campaigns, objec
 Campaign status transitions are validated by the API. All data access derives its organization from the signed session, including list filters, counts, and nested resource operations.
 
 Required backend variables are `DATABASE_URL` and `JWT_SECRET` (`PORT` is optional). The frontend optionally accepts `NEXT_PUBLIC_API_URL`, defaulting to `http://localhost:4000/api/v1`.
+
+## Part 3: tasks and execution
+
+Part 3 adds tenant-scoped campaign tasks, team and employee assignment, server-side search/filtering/pagination, persisted progress, subtasks, comments, activity history, submission versions, revisions, approvals, employee and team workspaces, and role-aware task dashboard metrics. Apply migration `003_tasks_execution` before starting the updated API.
+
+Deliverable metadata and private-storage keys are modeled, but binary upload endpoints are intentionally disabled until an object-storage provider is configured. The application does not claim a local upload succeeded and never stores production deliverables in the repository.

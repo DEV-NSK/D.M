@@ -1,320 +1,588 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
+
 enum Role {
- OWNER
- MANAGER
- TEAM_LEAD
- EMPLOYEE
- CLIENT
+  OWNER
+  MANAGER
+  TEAM_LEAD
+  EMPLOYEE
+  CLIENT
 }
+
 enum MemberStatus {
- INVITED
- ACTIVE
- SUSPENDED
- DEACTIVATED
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
 }
+
 enum InvitationStatus {
- PENDING
- ACCEPTED
- EXPIRED
- REVOKED
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
 }
+
 enum ClientStatus {
- ACTIVE
- INACTIVE
- ARCHIVED
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
+
 enum CampaignStatus {
- DRAFT
- PLANNED
- ACTIVE
- PAUSED
- COMPLETED
- CANCELLED
+  DRAFT
+  PLANNED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
 }
+
 enum CampaignType {
- SOCIAL_MEDIA
- SEO
- PAID_ADVERTISING
- CONTENT_MARKETING
- EMAIL_MARKETING
- BRANDING
- WEBSITE
- INFLUENCER_MARKETING
- OTHER
+  SOCIAL_MEDIA
+  SEO
+  PAID_ADVERTISING
+  CONTENT_MARKETING
+  EMAIL_MARKETING
+  BRANDING
+  WEBSITE
+  INFLUENCER_MARKETING
+  OTHER
 }
+
 enum AssignmentRole {
- PRIMARY
- SUPPORTING
+  PRIMARY
+  SUPPORTING
 }
+
+enum TaskType {
+  CONTENT_CREATION
+  SOCIAL_MEDIA
+  GRAPHIC_DESIGN
+  VIDEO_EDITING
+  COPYWRITING
+  SEO
+  PAID_ADVERTISING
+  EMAIL_MARKETING
+  WEB_DEVELOPMENT
+  RESEARCH
+  CLIENT_COMMUNICATION
+  OTHER
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  REVISION_REQUIRED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskAssignmentType {
+  PRIMARY
+  COLLABORATOR
+}
+
+enum SubmissionStatus {
+  PENDING_REVIEW
+  APPROVED
+  REVISION_REQUIRED
+}
+
+enum ReviewAction {
+  APPROVE
+  REQUEST_REVISION
+}
+
 model User {
- id String @id @default(cuid())
- name String
- email String @unique
- passwordHash String
- phone String?
- jobTitle String?
- bio String?
- timezone String?
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- memberships Membership[]
- ledTeams Team[] @relation("TeamLead")
- teamMemberships TeamMember[]
- invitations Invitation[] @relation("InvitedBy")
- activities ActivityLog[] @relation("Actor")
- passwordResets PasswordResetToken[]
- ownedClients Client[] @relation("ClientOwner")
- createdClients Client[] @relation("ClientCreator")
- createdCampaigns Campaign[] @relation("CampaignCreator")
- updatedCampaigns Campaign[] @relation("CampaignUpdater")
- clientActivities ClientActivity[] @relation("ClientActivityActor")
- campaignActivities CampaignActivity[] @relation("CampaignActivityActor")
- campaignAssignments CampaignTeamAssignment[] @relation("CampaignAssigner")
+  id                  String                   @id @default(cuid())
+  name                String
+  email               String                   @unique
+  passwordHash        String
+  phone               String?
+  jobTitle            String?
+  bio                 String?
+  timezone            String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  memberships         Membership[]
+  ledTeams            Team[]                   @relation("TeamLead")
+  teamMemberships     TeamMember[]
+  invitations         Invitation[]             @relation("InvitedBy")
+  activities          ActivityLog[]            @relation("Actor")
+  passwordResets      PasswordResetToken[]
+  ownedClients        Client[]                 @relation("ClientOwner")
+  createdClients      Client[]                 @relation("ClientCreator")
+  createdCampaigns    Campaign[]               @relation("CampaignCreator")
+  updatedCampaigns    Campaign[]               @relation("CampaignUpdater")
+  clientActivities    ClientActivity[]         @relation("ClientActivityActor")
+  campaignActivities  CampaignActivity[]       @relation("CampaignActivityActor")
+  campaignAssignments CampaignTeamAssignment[] @relation("CampaignAssigner")
+  createdTasks        Task[]                   @relation("TaskCreator")
+  updatedTasks        Task[]                   @relation("TaskUpdater")
+  taskAssignments     TaskAssignee[]           @relation("TaskAssignedUser")
+  assignedTasks       TaskAssignee[]           @relation("TaskAssigner")
+  taskSubtasks        TaskSubtask[]            @relation("TaskSubtaskCreator")
+  taskComments        TaskComment[]            @relation("TaskCommentAuthor")
+  taskActivities      TaskActivity[]           @relation("TaskActivityActor")
+  taskSubmissions     TaskSubmission[]         @relation("TaskSubmitter")
+  reviewedSubmissions TaskSubmission[]         @relation("SubmissionReviewer")
+  taskDeliverables    TaskDeliverable[]        @relation("DeliverableUploader")
+  taskReviews         TaskReview[]             @relation("TaskReviewer")
 }
+
 model Organization {
- id String @id @default(cuid())
- name String
- slug String @unique
- logoUrl String?
- timezone String @default("Asia/Kolkata")
- industry String?
- currency String @default("INR")
- language String @default("en")
- status String @default("ACTIVE")
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- memberships Membership[]
- teams Team[]
- invitations Invitation[]
- activities ActivityLog[]
- clients Client[]
- clientContacts ClientContact[]
- clientActivities ClientActivity[]
- campaigns Campaign[]
- campaignObjectives CampaignObjective[]
- campaignAssignments CampaignTeamAssignment[]
- campaignActivities CampaignActivity[]
+  id                  String                   @id @default(cuid())
+  name                String
+  slug                String                   @unique
+  logoUrl             String?
+  timezone            String                   @default("Asia/Kolkata")
+  industry            String?
+  currency            String                   @default("INR")
+  language            String                   @default("en")
+  status              String                   @default("ACTIVE")
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  memberships         Membership[]
+  teams               Team[]
+  invitations         Invitation[]
+  activities          ActivityLog[]
+  clients             Client[]
+  clientContacts      ClientContact[]
+  clientActivities    ClientActivity[]
+  campaigns           Campaign[]
+  campaignObjectives  CampaignObjective[]
+  campaignAssignments CampaignTeamAssignment[]
+  campaignActivities  CampaignActivity[]
+  tasks               Task[]
+  taskAssignees       TaskAssignee[]
+  taskSubtasks        TaskSubtask[]
+  taskComments        TaskComment[]
+  taskActivities      TaskActivity[]
+  taskSubmissions     TaskSubmission[]
+  taskDeliverables    TaskDeliverable[]
+  taskReviews         TaskReview[]
 }
+
 model Membership {
- id String @id @default(cuid())
- userId String
- organizationId String
- role Role
- status MemberStatus @default(ACTIVE)
- joinedAt DateTime @default(now())
- user User @relation(fields:[userId],references:[id])
- organization Organization @relation(fields:[organizationId],references:[id])
- @@unique([userId,organizationId])
- @@index([organizationId,status])
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role
+  status         MemberStatus @default(ACTIVE)
+  joinedAt       DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, status])
 }
+
 model Team {
- id String @id @default(cuid())
- organizationId String
- name String
- description String?
- teamLeadId String?
- status String @default("ACTIVE")
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- organization Organization @relation(fields:[organizationId],references:[id])
- teamLead User? @relation("TeamLead",fields:[teamLeadId],references:[id])
- members TeamMember[]
- campaignAssignments CampaignTeamAssignment[]
- @@unique([organizationId,name])
+  id                  String                   @id @default(cuid())
+  organizationId      String
+  name                String
+  description         String?
+  teamLeadId          String?
+  status              String                   @default("ACTIVE")
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  organization        Organization             @relation(fields: [organizationId], references: [id])
+  teamLead            User?                    @relation("TeamLead", fields: [teamLeadId], references: [id])
+  members             TeamMember[]
+  campaignAssignments CampaignTeamAssignment[]
+  tasks               Task[]
+
+  @@unique([organizationId, name])
 }
 
 model Client {
- id String @id @default(cuid())
- organizationId String
- name String
- companyName String?
- industry String?
- websiteUrl String?
- primaryEmail String?
- primaryPhone String?
- addressLine1 String?
- addressLine2 String?
- city String?
- state String?
- postalCode String?
- countryCode String?
- timezone String?
- status ClientStatus @default(ACTIVE)
- ownerUserId String?
- notes String?
- createdBy String
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- archivedAt DateTime?
- organization Organization @relation(fields:[organizationId],references:[id])
- owner User? @relation("ClientOwner",fields:[ownerUserId],references:[id])
- creator User @relation("ClientCreator",fields:[createdBy],references:[id])
- contacts ClientContact[]
- activities ClientActivity[]
- campaigns Campaign[]
- @@index([organizationId,status])
- @@index([organizationId,name])
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  companyName    String?
+  industry       String?
+  websiteUrl     String?
+  primaryEmail   String?
+  primaryPhone   String?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  state          String?
+  postalCode     String?
+  countryCode    String?
+  timezone       String?
+  status         ClientStatus     @default(ACTIVE)
+  ownerUserId    String?
+  notes          String?
+  createdBy      String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  archivedAt     DateTime?
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  owner          User?            @relation("ClientOwner", fields: [ownerUserId], references: [id])
+  creator        User             @relation("ClientCreator", fields: [createdBy], references: [id])
+  contacts       ClientContact[]
+  activities     ClientActivity[]
+  campaigns      Campaign[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, name])
 }
 
 model ClientContact {
- id String @id @default(cuid())
- organizationId String
- clientId String
- name String
- email String?
- phone String?
- jobTitle String?
- isPrimary Boolean @default(false)
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- organization Organization @relation(fields:[organizationId],references:[id])
- client Client @relation(fields:[clientId],references:[id],onDelete:Cascade)
- @@index([organizationId,clientId])
+  id             String       @id @default(cuid())
+  organizationId String
+  clientId       String
+  name           String
+  email          String?
+  phone          String?
+  jobTitle       String?
+  isPrimary      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, clientId])
 }
 
 model ClientActivity {
- id String @id @default(cuid())
- organizationId String
- clientId String
- actorUserId String?
- activityType String
- description String
- metadata Json?
- createdAt DateTime @default(now())
- organization Organization @relation(fields:[organizationId],references:[id])
- client Client @relation(fields:[clientId],references:[id],onDelete:Cascade)
- actor User? @relation("ClientActivityActor",fields:[actorUserId],references:[id])
- @@index([organizationId,clientId,createdAt])
+  id             String       @id @default(cuid())
+  organizationId String
+  clientId       String
+  actorUserId    String?
+  activityType   String
+  description    String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("ClientActivityActor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, clientId, createdAt])
 }
 
 model Campaign {
- id String @id @default(cuid())
- organizationId String
- clientId String
- name String
- slug String?
- description String?
- campaignType CampaignType
- status CampaignStatus @default(DRAFT)
- objectiveSummary String?
- startDate DateTime? @db.Date
- endDate DateTime? @db.Date
- budgetAmount Decimal? @db.Decimal(14,2)
- currencyCode String @db.Char(3)
- createdBy String
- updatedBy String
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- archivedAt DateTime?
- organization Organization @relation(fields:[organizationId],references:[id])
- client Client @relation(fields:[clientId],references:[id])
- creator User @relation("CampaignCreator",fields:[createdBy],references:[id])
- updater User @relation("CampaignUpdater",fields:[updatedBy],references:[id])
- objectives CampaignObjective[]
- teamAssignments CampaignTeamAssignment[]
- activities CampaignActivity[]
- @@index([organizationId,status])
- @@index([organizationId,clientId])
- @@unique([organizationId,slug])
+  id               String                   @id @default(cuid())
+  organizationId   String
+  clientId         String
+  name             String
+  slug             String?
+  description      String?
+  campaignType     CampaignType
+  status           CampaignStatus           @default(DRAFT)
+  objectiveSummary String?
+  startDate        DateTime?                @db.Date
+  endDate          DateTime?                @db.Date
+  budgetAmount     Decimal?                 @db.Decimal(14, 2)
+  currencyCode     String                   @db.Char(3)
+  createdBy        String
+  updatedBy        String
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  archivedAt       DateTime?
+  organization     Organization             @relation(fields: [organizationId], references: [id])
+  client           Client                   @relation(fields: [clientId], references: [id])
+  creator          User                     @relation("CampaignCreator", fields: [createdBy], references: [id])
+  updater          User                     @relation("CampaignUpdater", fields: [updatedBy], references: [id])
+  objectives       CampaignObjective[]
+  teamAssignments  CampaignTeamAssignment[]
+  activities       CampaignActivity[]
+  tasks            Task[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@index([organizationId, clientId])
 }
 
 model CampaignObjective {
- id String @id @default(cuid())
- organizationId String
- campaignId String
- title String
- description String?
- metricType String?
- targetValue Decimal? @db.Decimal(18,4)
- unit String?
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- organization Organization @relation(fields:[organizationId],references:[id])
- campaign Campaign @relation(fields:[campaignId],references:[id],onDelete:Cascade)
- @@index([organizationId,campaignId])
+  id             String       @id @default(cuid())
+  organizationId String
+  campaignId     String
+  title          String
+  description    String?
+  metricType     String?
+  targetValue    Decimal?     @db.Decimal(18, 4)
+  unit           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  campaign       Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, campaignId])
 }
 
 model CampaignTeamAssignment {
- id String @id @default(cuid())
- organizationId String
- campaignId String
- teamId String
- assignmentRole AssignmentRole @default(SUPPORTING)
- assignedBy String
- assignedAt DateTime @default(now())
- removedAt DateTime?
- organization Organization @relation(fields:[organizationId],references:[id])
- campaign Campaign @relation(fields:[campaignId],references:[id])
- team Team @relation(fields:[teamId],references:[id])
- assigner User @relation("CampaignAssigner",fields:[assignedBy],references:[id])
- @@unique([campaignId,teamId])
- @@index([organizationId,campaignId])
+  id             String         @id @default(cuid())
+  organizationId String
+  campaignId     String
+  teamId         String
+  assignmentRole AssignmentRole @default(SUPPORTING)
+  assignedBy     String
+  assignedAt     DateTime       @default(now())
+  removedAt      DateTime?
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  campaign       Campaign       @relation(fields: [campaignId], references: [id])
+  team           Team           @relation(fields: [teamId], references: [id])
+  assigner       User           @relation("CampaignAssigner", fields: [assignedBy], references: [id])
+
+  @@unique([campaignId, teamId])
+  @@index([organizationId, campaignId])
 }
 
 model CampaignActivity {
- id String @id @default(cuid())
- organizationId String
- campaignId String
- actorUserId String?
- activityType String
- description String
- metadata Json?
- createdAt DateTime @default(now())
- organization Organization @relation(fields:[organizationId],references:[id])
- campaign Campaign @relation(fields:[campaignId],references:[id],onDelete:Cascade)
- actor User? @relation("CampaignActivityActor",fields:[actorUserId],references:[id])
- @@index([organizationId,campaignId,createdAt])
+  id             String       @id @default(cuid())
+  organizationId String
+  campaignId     String
+  actorUserId    String?
+  activityType   String
+  description    String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  campaign       Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("CampaignActivityActor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, campaignId, createdAt])
 }
+
 model TeamMember {
- id String @id @default(cuid())
- teamId String
- userId String
- createdAt DateTime @default(now())
- team Team @relation(fields:[teamId],references:[id])
- user User @relation(fields:[userId],references:[id])
- @@unique([teamId,userId])
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([teamId, userId])
 }
+
 model Invitation {
- id String @id @default(cuid())
- organizationId String
- email String
- role Role
- tokenHash String @unique
- status InvitationStatus @default(PENDING)
- expiresAt DateTime
- teamId String?
- invitedById String
- createdAt DateTime @default(now())
- organization Organization @relation(fields:[organizationId],references:[id])
- invitedBy User @relation("InvitedBy",fields:[invitedById],references:[id])
- @@index([organizationId,status])
+  id             String           @id @default(cuid())
+  organizationId String
+  email          String
+  role           Role
+  tokenHash      String           @unique
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  teamId         String?
+  invitedById    String
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  invitedBy      User             @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([organizationId, status])
 }
+
 model PasswordResetToken {
- id String @id @default(cuid())
- userId String
- tokenHash String @unique
- expiresAt DateTime
- usedAt DateTime?
- createdAt DateTime @default(now())
- user User @relation(fields:[userId],references:[id])
- @@index([userId])
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
+
 model ActivityLog {
- id String @id @default(cuid())
- organizationId String
- actorUserId String?
- action String
- entityType String
- entityId String?
- metadata Json?
- createdAt DateTime @default(now())
- organization Organization @relation(fields:[organizationId],references:[id])
- actor User? @relation("Actor",fields:[actorUserId],references:[id])
- @@index([organizationId,createdAt])
+  id             String       @id @default(cuid())
+  organizationId String
+  actorUserId    String?
+  action         String
+  entityType     String
+  entityId       String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  actor          User?        @relation("Actor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model Task {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  campaignId         String
+  teamId             String
+  title              String
+  description        String?
+  taskType           TaskType          @default(OTHER)
+  priority           TaskPriority      @default(MEDIUM)
+  status             TaskStatus        @default(TODO)
+  progressPercentage Int               @default(0)
+  startDate          DateTime?         @db.Date
+  dueDate            DateTime?         @db.Date
+  estimatedHours     Decimal?          @db.Decimal(8, 2)
+  createdBy          String
+  updatedBy          String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  completedAt        DateTime?
+  archivedAt         DateTime?
+  organization       Organization      @relation(fields: [organizationId], references: [id])
+  campaign           Campaign          @relation(fields: [campaignId], references: [id])
+  team               Team              @relation(fields: [teamId], references: [id])
+  creator            User              @relation("TaskCreator", fields: [createdBy], references: [id])
+  updater            User              @relation("TaskUpdater", fields: [updatedBy], references: [id])
+  assignees          TaskAssignee[]
+  subtasks           TaskSubtask[]
+  comments           TaskComment[]
+  activities         TaskActivity[]
+  submissions        TaskSubmission[]
+  deliverables       TaskDeliverable[]
+  reviews            TaskReview[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, dueDate])
+  @@index([organizationId, campaignId])
+  @@index([organizationId, teamId])
+  @@index([organizationId, priority])
+  @@index([organizationId, createdAt])
+}
+
+model TaskAssignee {
+  id             String             @id @default(cuid())
+  organizationId String
+  taskId         String
+  userId         String
+  assignmentType TaskAssignmentType @default(PRIMARY)
+  assignedBy     String
+  assignedAt     DateTime           @default(now())
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  task           Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user           User               @relation("TaskAssignedUser", fields: [userId], references: [id])
+  assigner       User               @relation("TaskAssigner", fields: [assignedBy], references: [id])
+
+  @@unique([taskId, userId])
+  @@index([organizationId, userId])
+}
+
+model TaskSubtask {
+  id             String       @id @default(cuid())
+  organizationId String
+  taskId         String
+  title          String
+  description    String?
+  completed      Boolean      @default(false)
+  position       Int          @default(0)
+  createdBy      String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  completedAt    DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  task           Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  creator        User         @relation("TaskSubtaskCreator", fields: [createdBy], references: [id])
+
+  @@index([organizationId, taskId, position])
+}
+
+model TaskComment {
+  id             String       @id @default(cuid())
+  organizationId String
+  taskId         String
+  authorId       String
+  content        String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  task           Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author         User         @relation("TaskCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([organizationId, taskId, createdAt])
+}
+
+model TaskActivity {
+  id             String       @id @default(cuid())
+  organizationId String
+  taskId         String
+  actorUserId    String?
+  activityType   String
+  description    String
+  previousValue  Json?
+  newValue       Json?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  task           Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("TaskActivityActor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, taskId, createdAt])
+}
+
+model TaskSubmission {
+  id               String            @id @default(cuid())
+  organizationId   String
+  taskId           String
+  submittedBy      String
+  submissionNumber Int
+  description      String
+  status           SubmissionStatus  @default(PENDING_REVIEW)
+  reviewComment    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  task             Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  submitter        User              @relation("TaskSubmitter", fields: [submittedBy], references: [id])
+  reviewer         User?             @relation("SubmissionReviewer", fields: [reviewedBy], references: [id])
+  deliverables     TaskDeliverable[]
+  reviews          TaskReview[]
+
+  @@unique([taskId, submissionNumber])
+  @@index([organizationId, taskId, status])
+}
+
+model TaskDeliverable {
+  id             String          @id @default(cuid())
+  organizationId String
+  taskId         String
+  submissionId   String?
+  uploadedBy     String
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  storageKey     String
+  createdAt      DateTime        @default(now())
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  task           Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  submission     TaskSubmission? @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  uploader       User            @relation("DeliverableUploader", fields: [uploadedBy], references: [id])
+
+  @@index([organizationId, taskId])
+}
+
+model TaskReview {
+  id             String         @id @default(cuid())
+  organizationId String
+  taskId         String
+  submissionId   String
+  reviewerId     String
+  action         ReviewAction
+  comment        String?
+  createdAt      DateTime       @default(now())
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  task           Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  submission     TaskSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewer       User           @relation("TaskReviewer", fields: [reviewerId], references: [id])
+
+  @@index([organizationId, taskId, createdAt])
 }
