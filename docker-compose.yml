@@ -1,0 +1,11 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dm
+      POSTGRES_PASSWORD: dm
+      POSTGRES_DB: dm
+    ports: ["5433:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+volumes:
+  postgres_data:

@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum Role {
+ OWNER
+ MANAGER
+ TEAM_LEAD
+ EMPLOYEE
+ CLIENT
+}
+enum MemberStatus {
+ INVITED
+ ACTIVE
+ SUSPENDED
+ DEACTIVATED
+}
+enum InvitationStatus {
+ PENDING
+ ACCEPTED
+ EXPIRED
+ REVOKED
+}
+model User {
+ id String @id @default(cuid())
+ name String
+ email String @unique
+ passwordHash String
+ phone String?
+ jobTitle String?
+ bio String?
+ timezone String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ memberships Membership[]
+ ledTeams Team[] @relation("TeamLead")
+ teamMemberships TeamMember[]
+ invitations Invitation[] @relation("InvitedBy")
+ activities ActivityLog[] @relation("Actor")
+ passwordResets PasswordResetToken[]
+}
+model Organization {
+ id String @id @default(cuid())
+ name String
+ slug String @unique
+ logoUrl String?
+ timezone String @default("Asia/Kolkata")
+ industry String?
+ currency String @default("INR")
+ language String @default("en")
+ status String @default("ACTIVE")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ memberships Membership[]
+ teams Team[]
+ invitations Invitation[]
+ activities ActivityLog[]
+}
+model Membership {
+ id String @id @default(cuid())
+ userId String
+ organizationId String
+ role Role
+ status MemberStatus @default(ACTIVE)
+ joinedAt DateTime @default(now())
+ user User @relation(fields:[userId],references:[id])
+ organization Organization @relation(fields:[organizationId],references:[id])
+ @@unique([userId,organizationId])
+ @@index([organizationId,status])
+}
+model Team {
+ id String @id @default(cuid())
+ organizationId String
+ name String
+ description String?
+ teamLeadId String?
+ status String @default("ACTIVE")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ organization Organization @relation(fields:[organizationId],references:[id])
+ teamLead User? @relation("TeamLead",fields:[teamLeadId],references:[id])
+ members TeamMember[]
+ @@unique([organizationId,name])
+}
+model TeamMember {
+ id String @id @default(cuid())
+ teamId String
+ userId String
+ createdAt DateTime @default(now())
+ team Team @relation(fields:[teamId],references:[id])
+ user User @relation(fields:[userId],references:[id])
+ @@unique([teamId,userId])
+}
+model Invitation {
+ id String @id @default(cuid())
+ organizationId String
+ email String
+ role Role
+ tokenHash String @unique
+ status InvitationStatus @default(PENDING)
+ expiresAt DateTime
+ teamId String?
+ invitedById String
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id])
+ invitedBy User @relation("InvitedBy",fields:[invitedById],references:[id])
+ @@index([organizationId,status])
+}
+model PasswordResetToken {
+ id String @id @default(cuid())
+ userId String
+ tokenHash String @unique
+ expiresAt DateTime
+ usedAt DateTime?
+ createdAt DateTime @default(now())
+ user User @relation(fields:[userId],references:[id])
+ @@index([userId])
+}
+model ActivityLog {
+ id String @id @default(cuid())
+ organizationId String
+ actorUserId String?
+ action String
+ entityType String
+ entityId String?
+ metadata Json?
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id])
+ actor User? @relation("Actor",fields:[actorUserId],references:[id])
+ @@index([organizationId,createdAt])
+}

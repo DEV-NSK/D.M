@@ -1,0 +1,3 @@
+-- Prisma owns schema evolution. Generate the complete provider-specific migration with:
+-- npx prisma migrate dev --name initial_schema
+-- This checked-in marker makes the migration directory explicit for deployment tooling.
