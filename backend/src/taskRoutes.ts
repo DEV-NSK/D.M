@@ -63,10 +63,12 @@ export async function registerTaskRoutes(
   ok: any,
   fail: any,
 ) {
-  const isManager = (m: any) => ["OWNER", "MANAGER"].includes(m.role);
+  const isManager = (m: any) => ["CEO", "MANAGER"].includes(m.role);
   const taskScope = (m: any): any =>
-    isManager(m)
+    m.role === "CEO"
       ? {}
+      : m.role === "MANAGER"
+        ? { team: { managerId: m.userId } }
       : m.role === "TEAM_LEAD"
         ? { team: { teamLeadId: m.userId } }
         : { assignees: { some: { userId: m.userId } } };
@@ -100,12 +102,12 @@ export async function registerTaskRoutes(
       },
     });
   const ensureTeamAccess = async (m: any, teamId: string) =>
-    isManager(m) ||
+    m.role === "CEO" ||
     !!(await db.team.findFirst({
       where: {
         id: teamId,
         organizationId: m.organizationId,
-        teamLeadId: m.userId,
+        ...(m.role === "MANAGER" ? {managerId:m.userId} : {teamLeadId:m.userId}),
       },
     }));
   const validateRelations = async (
@@ -439,7 +441,7 @@ export async function registerTaskRoutes(
           );
       if (
         status === "CANCELLED" &&
-        !["OWNER", "MANAGER", "TEAM_LEAD"].includes(q.member.role)
+        !["CEO", "MANAGER", "TEAM_LEAD"].includes(q.member.role)
       )
         return r
           .status(403)
@@ -934,7 +936,7 @@ export async function registerTaskRoutes(
   ) {
     const task: any = await visible(q.member, q.params.id);
     if (!task) return r.status(404).send(fail("NOT_FOUND", "Task not found."));
-    if (!["OWNER", "MANAGER", "TEAM_LEAD"].includes(q.member.role))
+    if (!["CEO", "MANAGER", "TEAM_LEAD"].includes(q.member.role))
       return r
         .status(403)
         .send(

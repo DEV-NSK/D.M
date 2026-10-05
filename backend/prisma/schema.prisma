@@ -8,7 +8,7 @@ datasource db {
 }
 
 enum Role {
-  OWNER
+  CEO
   MANAGER
   TEAM_LEAD
   EMPLOYEE
@@ -136,7 +136,9 @@ model User {
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
   memberships         Membership[]
+  supervisedMembers   Membership[]             @relation("MembershipSupervisor")
   ledTeams            Team[]                   @relation("TeamLead")
+  managedTeams        Team[]                   @relation("TeamManager")
   teamMemberships     TeamMember[]
   invitations         Invitation[]             @relation("InvitedBy")
   activities          ActivityLog[]            @relation("Actor")
@@ -224,12 +226,15 @@ model Membership {
   organizationId String
   role           Role
   status         MemberStatus @default(ACTIVE)
+  reportsToId    String?
   joinedAt       DateTime     @default(now())
   user           User         @relation(fields: [userId], references: [id])
+  reportsTo      User?        @relation("MembershipSupervisor", fields: [reportsToId], references: [id])
   organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
+  @@index([organizationId, reportsToId])
 }
 
 model Team {
@@ -238,16 +243,19 @@ model Team {
   name                String
   description         String?
   teamLeadId          String?
+  managerId           String?
   status              String                   @default("ACTIVE")
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
   organization        Organization             @relation(fields: [organizationId], references: [id])
   teamLead            User?                    @relation("TeamLead", fields: [teamLeadId], references: [id])
+  manager             User?                    @relation("TeamManager", fields: [managerId], references: [id])
   members             TeamMember[]
   campaignAssignments CampaignTeamAssignment[]
   tasks               Task[]
 
   @@unique([organizationId, name])
+  @@index([organizationId, managerId])
 }
 
 model Client {
