@@ -11,3 +11,11 @@ Part 1 is a real multi-tenant foundation: authentication, organization membershi
 5. Run `npm run dev` in both workspaces.
 
 The API is at `http://localhost:4000/api/v1`; the UI is at `http://localhost:3000`.
+
+## Part 2: clients and campaigns
+
+Part 2 adds tenant-scoped clients, contacts, internal activity, campaigns, objectives, budgets, team assignments, audited lifecycle transitions, and real dashboard summaries. Authenticated endpoints are under `/api/v1/clients`, `/api/v1/campaigns`, and `/api/v1/dashboard/summary`; nested resources cover contacts, objectives, assignments, and activity.
+
+Campaign status transitions are validated by the API. All data access derives its organization from the signed session, including list filters, counts, and nested resource operations.
+
+Required backend variables are `DATABASE_URL` and `JWT_SECRET` (`PORT` is optional). The frontend optionally accepts `NEXT_PUBLIC_API_URL`, defaulting to `http://localhost:4000/api/v1`.

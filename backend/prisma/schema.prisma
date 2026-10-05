@@ -24,6 +24,34 @@ enum InvitationStatus {
  EXPIRED
  REVOKED
 }
+enum ClientStatus {
+ ACTIVE
+ INACTIVE
+ ARCHIVED
+}
+enum CampaignStatus {
+ DRAFT
+ PLANNED
+ ACTIVE
+ PAUSED
+ COMPLETED
+ CANCELLED
+}
+enum CampaignType {
+ SOCIAL_MEDIA
+ SEO
+ PAID_ADVERTISING
+ CONTENT_MARKETING
+ EMAIL_MARKETING
+ BRANDING
+ WEBSITE
+ INFLUENCER_MARKETING
+ OTHER
+}
+enum AssignmentRole {
+ PRIMARY
+ SUPPORTING
+}
 model User {
  id String @id @default(cuid())
  name String
@@ -41,6 +69,13 @@ model User {
  invitations Invitation[] @relation("InvitedBy")
  activities ActivityLog[] @relation("Actor")
  passwordResets PasswordResetToken[]
+ ownedClients Client[] @relation("ClientOwner")
+ createdClients Client[] @relation("ClientCreator")
+ createdCampaigns Campaign[] @relation("CampaignCreator")
+ updatedCampaigns Campaign[] @relation("CampaignUpdater")
+ clientActivities ClientActivity[] @relation("ClientActivityActor")
+ campaignActivities CampaignActivity[] @relation("CampaignActivityActor")
+ campaignAssignments CampaignTeamAssignment[] @relation("CampaignAssigner")
 }
 model Organization {
  id String @id @default(cuid())
@@ -58,6 +93,13 @@ model Organization {
  teams Team[]
  invitations Invitation[]
  activities ActivityLog[]
+ clients Client[]
+ clientContacts ClientContact[]
+ clientActivities ClientActivity[]
+ campaigns Campaign[]
+ campaignObjectives CampaignObjective[]
+ campaignAssignments CampaignTeamAssignment[]
+ campaignActivities CampaignActivity[]
 }
 model Membership {
  id String @id @default(cuid())
@@ -83,7 +125,151 @@ model Team {
  organization Organization @relation(fields:[organizationId],references:[id])
  teamLead User? @relation("TeamLead",fields:[teamLeadId],references:[id])
  members TeamMember[]
+ campaignAssignments CampaignTeamAssignment[]
  @@unique([organizationId,name])
+}
+
+model Client {
+ id String @id @default(cuid())
+ organizationId String
+ name String
+ companyName String?
+ industry String?
+ websiteUrl String?
+ primaryEmail String?
+ primaryPhone String?
+ addressLine1 String?
+ addressLine2 String?
+ city String?
+ state String?
+ postalCode String?
+ countryCode String?
+ timezone String?
+ status ClientStatus @default(ACTIVE)
+ ownerUserId String?
+ notes String?
+ createdBy String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ archivedAt DateTime?
+ organization Organization @relation(fields:[organizationId],references:[id])
+ owner User? @relation("ClientOwner",fields:[ownerUserId],references:[id])
+ creator User @relation("ClientCreator",fields:[createdBy],references:[id])
+ contacts ClientContact[]
+ activities ClientActivity[]
+ campaigns Campaign[]
+ @@index([organizationId,status])
+ @@index([organizationId,name])
+}
+
+model ClientContact {
+ id String @id @default(cuid())
+ organizationId String
+ clientId String
+ name String
+ email String?
+ phone String?
+ jobTitle String?
+ isPrimary Boolean @default(false)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ organization Organization @relation(fields:[organizationId],references:[id])
+ client Client @relation(fields:[clientId],references:[id],onDelete:Cascade)
+ @@index([organizationId,clientId])
+}
+
+model ClientActivity {
+ id String @id @default(cuid())
+ organizationId String
+ clientId String
+ actorUserId String?
+ activityType String
+ description String
+ metadata Json?
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id])
+ client Client @relation(fields:[clientId],references:[id],onDelete:Cascade)
+ actor User? @relation("ClientActivityActor",fields:[actorUserId],references:[id])
+ @@index([organizationId,clientId,createdAt])
+}
+
+model Campaign {
+ id String @id @default(cuid())
+ organizationId String
+ clientId String
+ name String
+ slug String?
+ description String?
+ campaignType CampaignType
+ status CampaignStatus @default(DRAFT)
+ objectiveSummary String?
+ startDate DateTime? @db.Date
+ endDate DateTime? @db.Date
+ budgetAmount Decimal? @db.Decimal(14,2)
+ currencyCode String @db.Char(3)
+ createdBy String
+ updatedBy String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ archivedAt DateTime?
+ organization Organization @relation(fields:[organizationId],references:[id])
+ client Client @relation(fields:[clientId],references:[id])
+ creator User @relation("CampaignCreator",fields:[createdBy],references:[id])
+ updater User @relation("CampaignUpdater",fields:[updatedBy],references:[id])
+ objectives CampaignObjective[]
+ teamAssignments CampaignTeamAssignment[]
+ activities CampaignActivity[]
+ @@index([organizationId,status])
+ @@index([organizationId,clientId])
+ @@unique([organizationId,slug])
+}
+
+model CampaignObjective {
+ id String @id @default(cuid())
+ organizationId String
+ campaignId String
+ title String
+ description String?
+ metricType String?
+ targetValue Decimal? @db.Decimal(18,4)
+ unit String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ organization Organization @relation(fields:[organizationId],references:[id])
+ campaign Campaign @relation(fields:[campaignId],references:[id],onDelete:Cascade)
+ @@index([organizationId,campaignId])
+}
+
+model CampaignTeamAssignment {
+ id String @id @default(cuid())
+ organizationId String
+ campaignId String
+ teamId String
+ assignmentRole AssignmentRole @default(SUPPORTING)
+ assignedBy String
+ assignedAt DateTime @default(now())
+ removedAt DateTime?
+ organization Organization @relation(fields:[organizationId],references:[id])
+ campaign Campaign @relation(fields:[campaignId],references:[id])
+ team Team @relation(fields:[teamId],references:[id])
+ assigner User @relation("CampaignAssigner",fields:[assignedBy],references:[id])
+ @@unique([campaignId,teamId])
+ @@index([organizationId,campaignId])
+}
+
+model CampaignActivity {
+ id String @id @default(cuid())
+ organizationId String
+ campaignId String
+ actorUserId String?
+ activityType String
+ description String
+ metadata Json?
+ createdAt DateTime @default(now())
+ organization Organization @relation(fields:[organizationId],references:[id])
+ campaign Campaign @relation(fields:[campaignId],references:[id],onDelete:Cascade)
+ actor User? @relation("CampaignActivityActor",fields:[actorUserId],references:[id])
+ @@index([organizationId,campaignId,createdAt])
 }
 model TeamMember {
  id String @id @default(cuid())
