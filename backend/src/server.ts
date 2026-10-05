@@ -1,6 +1,7 @@
 import Fastify from 'fastify'; import cors from '@fastify/cors'; import cookie from '@fastify/cookie'; import jwt from '@fastify/jwt'; import bcrypt from 'bcryptjs'; import crypto from 'node:crypto'; import {PrismaClient, Role, MemberStatus, InvitationStatus} from '@prisma/client'; import {z} from 'zod';
 import {registerTaskRoutes} from './taskRoutes.js';
 import {registerPortalRoutes} from './portalRoutes.js';
+import {registerAnalyticsRoutes} from './analyticsRoutes.js';
 const db=new PrismaClient(); const app=Fastify({logger:true}); const permissions:Record<Role,string[]>={OWNER:['*'],MANAGER:['organization.view','users.view','users.invite','teams.view','teams.create','teams.update','teams.members.manage','clients.view','clients.create','clients.update','clients.archive','contacts.manage','campaigns.view','campaigns.create','campaigns.update','campaigns.status','campaigns.teams','tasks.view','tasks.create','tasks.manage','tasks.status','tasks.progress','tasks.submit','tasks.review'],TEAM_LEAD:['organization.view','users.view','teams.view','teams.members.view','clients.view','clients.update','contacts.manage','campaigns.view','campaigns.update','campaigns.status','tasks.view','tasks.create','tasks.manage','tasks.status','tasks.progress','tasks.submit','tasks.review'],EMPLOYEE:['profile.view','profile.update','organization.view','teams.view','clients.view','campaigns.view','tasks.view','tasks.status','tasks.progress','tasks.submit'],CLIENT:['profile.view','profile.update']};
 await app.register(cors,{origin:'http://localhost:3000',credentials:true}); await app.register(cookie); await app.register(jwt,{secret:process.env.JWT_SECRET||'development-only-change-me',cookie:{cookieName:'dm_session',signed:false}});
 const ok=(data:any)=>({success:true,data}); const fail=(code:string,message:string)=>({success:false,error:{code,message}}); const token=(id:string)=>crypto.createHash('sha256').update(id).digest('hex');
@@ -69,5 +70,6 @@ app.get('/api/v1/dashboard/summary',{preHandler:guard('organization.view')},asyn
 
 await registerTaskRoutes(app,db,guard,ok,fail);
 await registerPortalRoutes(app,db,context);
+await registerAnalyticsRoutes(app,db,context);
 
 app.listen({port:Number(process.env.PORT||4000),host:'0.0.0.0'});

@@ -1,0 +1,2 @@
+import {describe,expect,it} from 'vitest';import {csv,parseDateRange,rate} from './analyticsRules.js';
+describe('analytics rules',()=>{it('handles zero denominators',()=>expect(rate(4,0)).toBe(0));it('calculates percentage',()=>expect(rate(2,3)).toBe(66.67));it('validates ranges',()=>expect(()=>parseDateRange({startDate:'2026-02-02',endDate:'2026-01-01'})).toThrow());it('escapes CSV',()=>expect(csv([{name:'a,"b"'}])).toContain('"a,""b"""'))});

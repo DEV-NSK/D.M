@@ -1,0 +1,8 @@
+'use client';
+import {useCallback,useEffect,useState} from 'react';import {PortalLayout} from '../../../components/PortalLayout';import {api,useWorkspace} from '../../../components/useWorkspace';import {Metrics} from '../../../components/AnalyticsUI';import {useRealtime} from '../../../components/useRealtime';
+export default function PortalReports(){
+ const me=useWorkspace(),[state,setState]=useState<any>({loading:true}),[revision,setRevision]=useState(0),refresh=useCallback(()=>setRevision(x=>x+1),[]),live=useRealtime(refresh);
+ useEffect(()=>{fetch(api+'/portal/reports',{credentials:'include'}).then(r=>r.json()).then(x=>setState(x.success?{data:x.data}:{error:x.error.message})).catch(()=>setState({error:'Unable to load report.'}))},[revision]);
+ if(!me)return <div className="loading">Loading…</div>;
+ return <PortalLayout me={me} live={live}><header className="page-head"><div><p className="eyebrow">CLIENT REPORTS</p><h1>Performance report</h1><p>Campaign progress and client-visible deliverable outcomes.</p></div></header>{state.loading?<div className="skeleton-grid"><i/><i/><i/></div>:state.error?<section className="card error-state">{state.error}</section>:<><Metrics items={[["Campaigns",state.data.campaigns],["Client-visible tasks",state.data.tasks],["Completed",state.data.completed],["Progress",`${state.data.progress}%`],["Pending reviews",state.data.pendingReviews],["Approved",state.data.approved],["Changes requested",state.data.changesRequested],["Approval rate",`${state.data.approvalRate}%`]]}/><section className="card"><h2>About this report</h2><p>Only client-visible tasks, submissions, and review outcomes associated with your client account are included.</p></section></>}</PortalLayout>
+}

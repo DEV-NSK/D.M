@@ -162,6 +162,7 @@ model User {
   clientMemberships   ClientMembership[]
   clientReviews       ClientReview[]
   notifications       Notification[]           @relation("NotificationRecipient")
+  reports             Report[]                 @relation("ReportCreator")
 }
 
 model Organization {
@@ -198,6 +199,23 @@ model Organization {
   clientMemberships   ClientMembership[]
   clientReviews       ClientReview[]
   notifications       Notification[]
+  reports             Report[]
+}
+
+model Report {
+  id             String       @id @default(cuid())
+  organizationId String
+  createdBy      String
+  name           String
+  type           String
+  filters        Json
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator        User         @relation("ReportCreator", fields: [createdBy], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, createdBy])
 }
 
 model Membership {
