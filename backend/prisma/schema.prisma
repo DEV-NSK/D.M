@@ -130,6 +130,45 @@ enum ClientReviewStatus {
   CHANGES_REQUESTED
 }
 
+enum SopTemplateStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum SopExecutionStatus {
+  NOT_STARTED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum SopResponsibilityType {
+  INTERNAL
+  CLIENT
+  SHARED
+  EXTERNAL
+}
+
+enum SopSourceType {
+  COM
+  CLIENT
+  COM_AND_CLIENT
+  EXTERNAL
+}
+
+enum SopApprovalType {
+  NONE
+  INTERNAL
+  CLIENT
+  BOTH
+}
+
+enum SopDependencyType {
+  BLOCKING
+}
+
 model User {
   id                          String                   @id @default(cuid())
   name                        String
@@ -174,6 +213,8 @@ model User {
   clientReviews               ClientReview[]
   notifications               Notification[]           @relation("NotificationRecipient")
   reports                     Report[]                 @relation("ReportCreator")
+  createdSopTemplates         SopTemplate[]            @relation("SopTemplateCreator")
+  createdSopExecutions        SopExecution[]           @relation("SopExecutionCreator")
 }
 
 model Organization {
@@ -213,6 +254,9 @@ model Organization {
   clientReviews         ClientReview[]
   notifications         Notification[]
   reports               Report[]
+  sopTemplates          SopTemplate[]
+  sopExecutions         SopExecution[]
+  sopActivities         SopActivity[]
 }
 
 model Report {
@@ -264,6 +308,7 @@ model Team {
   members             TeamMember[]
   campaignAssignments CampaignTeamAssignment[]
   tasks               Task[]
+  sopTemplateTasks    SopTemplateTask[]
 
   @@unique([organizationId, name])
   @@index([organizationId, managerId])
@@ -300,6 +345,7 @@ model Client {
   campaigns      Campaign[]
   memberships    ClientMembership[]
   reviews        ClientReview[]
+  sopExecutions  SopExecution[]
 
   @@index([organizationId, status])
   @@index([organizationId, name])
@@ -365,6 +411,7 @@ model Campaign {
   teamAssignments  CampaignTeamAssignment[]
   activities       CampaignActivity[]
   tasks            Task[]
+  sopExecutions    SopExecution[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, status])
@@ -518,13 +565,151 @@ model Task {
   reviews                  TaskReview[]
   clientReviews            ClientReview[]
   workSessions             TaskWorkSession[]
+  sopExecutionId           String?
+  sopTemplateTaskId        String?
+  sopExecutionDayId        String?
+  blocked                  Boolean                 @default(false)
+  sopExecution             SopExecution?           @relation(fields: [sopExecutionId], references: [id])
+  sopTemplateTask          SopTemplateTask?        @relation(fields: [sopTemplateTaskId], references: [id])
+  sopExecutionDay          SopExecutionDay?        @relation(fields: [sopExecutionDayId], references: [id])
 
+  @@unique([sopExecutionId, sopTemplateTaskId])
   @@index([organizationId, status])
   @@index([organizationId, dueDate])
   @@index([organizationId, campaignId])
   @@index([organizationId, teamId])
   @@index([organizationId, priority])
   @@index([organizationId, createdAt])
+}
+
+model SopTemplate {
+  id               String            @id @default(cuid())
+  organizationId   String
+  name             String
+  description      String?
+  version          Int               @default(1)
+  status           SopTemplateStatus @default(DRAFT)
+  createdBy        String
+  parentTemplateId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator          User              @relation("SopTemplateCreator", fields: [createdBy], references: [id])
+  parentTemplate   SopTemplate?      @relation("SopVersions", fields: [parentTemplateId], references: [id])
+  versions         SopTemplate[]     @relation("SopVersions")
+  days             SopTemplateDay[]
+  executions       SopExecution[]
+
+  @@unique([organizationId, name, version])
+  @@index([organizationId, status])
+}
+
+model SopTemplateDay {
+  id            String            @id @default(cuid())
+  sopTemplateId String
+  dayNumber     Int
+  title         String
+  description   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  template      SopTemplate       @relation(fields: [sopTemplateId], references: [id], onDelete: Cascade)
+  tasks         SopTemplateTask[]
+
+  @@unique([sopTemplateId, dayNumber])
+}
+
+model SopTemplateTask {
+  id                       String                @id @default(cuid())
+  sopTemplateDayId         String
+  title                    String
+  description              String?
+  responsibilityType       SopResponsibilityType @default(INTERNAL)
+  responsibilityTeamId     String?
+  responsibilityRole       Role?
+  operationalLabel         String?
+  sourceType               SopSourceType         @default(COM)
+  sourceDescription        String?
+  sequenceOrder            Int
+  defaultPriority          TaskPriority          @default(MEDIUM)
+  estimatedDurationSeconds Int?
+  requiresDeliverable      Boolean               @default(false)
+  approvalType             SopApprovalType       @default(NONE)
+  clientVisible            Boolean               @default(false)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  day                      SopTemplateDay        @relation(fields: [sopTemplateDayId], references: [id], onDelete: Cascade)
+  responsibilityTeam       Team?                 @relation(fields: [responsibilityTeamId], references: [id])
+  dependencies             SopTaskDependency[]   @relation("DependentTask")
+  dependents               SopTaskDependency[]   @relation("PrerequisiteTask")
+  generatedTasks           Task[]
+
+  @@unique([sopTemplateDayId, sequenceOrder])
+}
+
+model SopTaskDependency {
+  id                         String            @id @default(cuid())
+  sopTemplateTaskId          String
+  dependsOnSopTemplateTaskId String
+  dependencyType             SopDependencyType @default(BLOCKING)
+  task                       SopTemplateTask   @relation("DependentTask", fields: [sopTemplateTaskId], references: [id], onDelete: Cascade)
+  prerequisite               SopTemplateTask   @relation("PrerequisiteTask", fields: [dependsOnSopTemplateTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([sopTemplateTaskId, dependsOnSopTemplateTaskId])
+}
+
+model SopExecution {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  campaignId         String
+  clientId           String
+  sopTemplateId      String
+  sopTemplateVersion Int
+  startDate          DateTime           @db.Date
+  targetEndDate      DateTime?          @db.Date
+  status             SopExecutionStatus @default(ACTIVE)
+  createdBy          String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign           Campaign           @relation(fields: [campaignId], references: [id])
+  client             Client             @relation(fields: [clientId], references: [id])
+  template           SopTemplate        @relation(fields: [sopTemplateId], references: [id])
+  creator            User               @relation("SopExecutionCreator", fields: [createdBy], references: [id])
+  days               SopExecutionDay[]
+  tasks              Task[]
+  activities         SopActivity[]
+
+  @@unique([campaignId, sopTemplateId])
+  @@index([organizationId, status])
+}
+
+model SopExecutionDay {
+  id               String       @id @default(cuid())
+  sopExecutionId   String
+  sopTemplateDayId String
+  dayNumber        Int
+  title            String
+  scheduledDate    DateTime     @db.Date
+  createdAt        DateTime     @default(now())
+  execution        SopExecution @relation(fields: [sopExecutionId], references: [id], onDelete: Cascade)
+  tasks            Task[]
+
+  @@unique([sopExecutionId, dayNumber])
+}
+
+model SopActivity {
+  id             String       @id @default(cuid())
+  organizationId String
+  sopExecutionId String
+  actorUserId    String?
+  activityType   String
+  description    String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  execution      SopExecution @relation(fields: [sopExecutionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, sopExecutionId, createdAt])
 }
 
 model TaskWorkSession {

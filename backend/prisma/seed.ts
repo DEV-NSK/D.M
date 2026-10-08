@@ -161,6 +161,24 @@ async function addFullDemoData(organizationId: string, passwordHash: string) {
   console.log(`Full demo data added: ${staff.length} staff, ${teams.length} teams, ${clients.length} clients, ${campaigns.length} campaigns, and ${tasks.length} tasks.`);
 }
 
+async function seedComOnboarding(organizationId:string,createdBy:string){
+  if(await db.sopTemplate.findFirst({where:{organizationId,name:'COM Client Onboarding',version:1}}))return;
+  const teams=await db.team.findMany({where:{organizationId,status:'ACTIVE'}}),fallback=teams[0];if(!fallback)return;
+  const find=(words:string[])=>teams.find(t=>words.some(w=>t.name.toLowerCase().includes(w)))||fallback;
+  const activityDays=[
+    ['Call With COM Sales Team','WhatsApp Group Creation','Create Project Board','Call With Client','MOM & Timeline Preparation','Internal Team Discussion','Shoot Schedule Confirmation'],
+    ['Brand Guidelines Collection','End Card Design','Mood Board Design','Digital Marketing Plan','Competitor Research'],
+    ['Marketing Strategy','Social Account Access','Instagram Profile Setup','Facebook Page Setup','Content Calendar Preparation','Account Audit'],
+    ['Ad Creatives','Ad Creatives Approval','AD Scheduling','Shoot Schedule','Client Approval Follow-up'],
+    ['Reels/Posters Upload','Caption and Hashtag Review','Content Approval','Publishing Schedule'],
+    ['Shoot Data Sorting','Shoot Data Assignment','Edit Queue Preparation','Pending Task Follow-ups'],
+    ['First Week Meeting Schedule Confirmation','Performance Snapshot','Open Hurdles Review'],
+    ['First Week Client Meeting','Report Submission — Client','Report Submission — COM','Hurdle Resolution and Next Week Plan']
+  ];
+  const template=await db.sopTemplate.create({data:{organizationId,name:'COM Client Onboarding',description:'Week 1 operational onboarding workflow derived from the COM onboarding SOP sheet.',version:1,status:'ACTIVE',createdBy}});
+  for(let di=0;di<activityDays.length;di++){const day=await db.sopTemplateDay.create({data:{sopTemplateId:template.id,dayNumber:di+1,title:`Day ${di+1}`}});for(let ti=0;ti<activityDays[di].length;ti++){const title=activityDays[di][ti],client=/Client|Approval/.test(title),report=/Plan|Research|Report|Guideline|Mood Board|Creative/.test(title);await db.sopTemplateTask.create({data:{sopTemplateDayId:day.id,title,sequenceOrder:ti+1,responsibilityType:client?'SHARED':'INTERNAL',responsibilityTeamId:/creative|design|reel|poster|edit/i.test(title)?find(['content','social']).id:/shoot/i.test(title)?find(['social','client']).id:find(['client','performance']).id,sourceType:client?'COM_AND_CLIENT':'COM',operationalLabel:client?'COM & Client Approval':'From COM',defaultPriority:/Approval|Hurdle|Follow-up/.test(title)?'HIGH':'MEDIUM',estimatedDurationSeconds:3600,requiresDeliverable:report,approvalType:/Approval/.test(title)?'CLIENT':report?'INTERNAL':'NONE',clientVisible:client}})}}
+}
+
 async function run() {
   const existing = await db.organization.findUnique({ where: { slug: 'nsk-digital-demo' } });
   if (existing) {
@@ -292,6 +310,7 @@ async function run() {
   ] });
 
   await addFullDemoData(org.id, passwordHash);
+  await seedComOnboarding(org.id,ceo.id);
 
   console.log(`Demo workspace created. Sign in with any account below using password: ${password}`);
   for (const { user, role } of users) console.log(`${String(role).padEnd(10)} ${user.email}`);
