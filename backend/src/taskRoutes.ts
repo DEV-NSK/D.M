@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canTransition, validProgress, validSchedule } from "./taskRules.js";
 import { publish } from "./realtime.js";
+import { elapsedSeconds } from "./taskTimeRules.js";
 
 const taskTypes = [
   "CONTENT_CREATION",
@@ -197,6 +198,7 @@ export async function registerTaskRoutes(
         campaign: { include: { client: { select: { id: true, name: true } } } },
         team: { select: { id: true, name: true } },
         assignees: { include: { user: { select: { id: true, name: true } } } },
+        workSessions: { where: { status: "ACTIVE" }, select: { id: true, startedAt: true, employeeId: true, status: true } },
       };
       const [data, total] = await Promise.all([
         db.task.findMany({
@@ -246,6 +248,7 @@ export async function registerTaskRoutes(
         const task = await tx.task.create({
           data: {
             ...data,
+            estimatedDurationSeconds: data.estimatedHours == null ? null : Math.round(Number(data.estimatedHours) * 3600),
             status: assigneeId ? "ASSIGNED" : "TODO",
             organizationId: q.member.organizationId,
             createdBy: q.member.userId,
@@ -332,6 +335,7 @@ export async function registerTaskRoutes(
               include: { actor: { select: { id: true, name: true } } },
               orderBy: { createdAt: "desc" },
             },
+            workSessions: { orderBy: { startedAt: "asc" } },
             assignmentHistory: {
               include: { employee: { select: { id: true, name: true } }, actor: { select: { id: true, name: true } } },
               orderBy: { assignedAt: "desc" },
@@ -388,7 +392,7 @@ export async function registerTaskRoutes(
       const updated = await db.$transaction(async (tx: any) => {
         const task = await tx.task.update({
           where: { id: current.id },
-          data: { ...data, updatedBy: q.member.userId },
+          data: { ...data, ...(Object.prototype.hasOwnProperty.call(data, "estimatedHours") ? { estimatedDurationSeconds: data.estimatedHours == null ? null : Math.round(Number(data.estimatedHours) * 3600) } : {}), updatedBy: q.member.userId },
         });
         if (assigneeId !== undefined) {
           if (q.member.role !== "TEAM_LEAD") throw Object.assign(new Error("Only a Team Lead can assign tasks."), { statusCode: 403 });
@@ -446,6 +450,7 @@ export async function registerTaskRoutes(
       if (!task)
         return r.status(404).send(fail("NOT_FOUND", "Task not found."));
       const { status } = z.object({ status: z.enum(statuses) }).parse(q.body);
+      if (status === "COMPLETED") return r.status(422).send(fail("USE_COMPLETION_ENDPOINT", "Complete tasks through the time-tracking completion endpoint."));
       if (["CEO", "MANAGER"].includes(q.member.role)) return r.status(403).send(fail("FORBIDDEN", "This role has task oversight access only."));
       if (!canTransition(task.status, status))
         return r
@@ -456,10 +461,8 @@ export async function registerTaskRoutes(
               `${task.status} cannot transition to ${status}.`,
             ),
           );
-      if (q.member.role === "EMPLOYEE" && !["IN_PROGRESS", "COMPLETED"].includes(status))
-        return r.status(403).send(fail("FORBIDDEN", "Employees may only start or complete their assigned tasks."));
-      if (status === "COMPLETED" && task.requiresClientReview)
-        return r.status(422).send(fail("REVIEW_REQUIRED", "This task must be submitted and approved before completion."));
+      if (q.member.role === "EMPLOYEE" && status !== "IN_PROGRESS")
+        return r.status(403).send(fail("FORBIDDEN", "Employees must use task timer actions to change execution state."));
       if (["IN_REVIEW", "REVISION_REQUIRED"].includes(status))
         return r
           .status(422)
@@ -1068,12 +1071,21 @@ export async function registerTaskRoutes(
           comment: body.comment,
         },
       });
+      let actualDurationSeconds = task.actualDurationSeconds || 0;
+      if (approved) {
+        const now = new Date(), active = await tx.taskWorkSession.findFirst({ where: { taskId: task.id, status: "ACTIVE" } });
+        if (active) await tx.taskWorkSession.update({ where: { id: active.id }, data: { endedAt: now, durationSeconds: elapsedSeconds(active.startedAt, now), status: "COMPLETED" } });
+        const aggregate: any = await tx.taskWorkSession.aggregate({ where: { taskId: task.id, status: "COMPLETED" }, _sum: { durationSeconds: true } });
+        actualDurationSeconds = aggregate._sum.durationSeconds || 0;
+      }
       await tx.task.update({
         where: { id: task.id },
         data: {
           status: approved ? "COMPLETED" : "REVISION_REQUIRED",
           progressPercentage: approved ? 100 : task.progressPercentage,
           completedAt: approved ? new Date() : null,
+          completedBy: approved ? submission.submittedBy : null,
+          actualDurationSeconds,
           updatedBy: q.member.userId,
         },
       });

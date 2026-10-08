@@ -52,6 +52,8 @@ export async function registerAnalyticsRoutes(app: any, db: any, context: any) {
   const scope = (m: any) =>
     m.role === "EMPLOYEE"
       ? { assignees: { some: { userId: m.userId } } }
+      : m.role === "MANAGER"
+        ? { team: { managerId: m.userId } }
       : m.role === "TEAM_LEAD"
         ? {
             team: {
@@ -175,7 +177,7 @@ export async function registerAnalyticsRoutes(app: any, db: any, context: any) {
     const v = range(q),
       w = where(q, v),
       now = new Date(),
-      [groups, overdue, visible, rows, total, trend] = await Promise.all([
+      [groups, overdue, visible, rows, total, trend, durations] = await Promise.all([
         db.task.groupBy({ by: ["status"], where: w, _count: true }),
         db.task.count({
           where: {
@@ -196,6 +198,8 @@ export async function registerAnalyticsRoutes(app: any, db: any, context: any) {
             status: true,
             priority: true,
             dueDate: true,
+            estimatedDurationSeconds: true,
+            actualDurationSeconds: true,
             visibility: true,
             campaign: {
               select: {
@@ -212,8 +216,9 @@ export async function registerAnalyticsRoutes(app: any, db: any, context: any) {
         db.task.count({ where: w }),
         db.task.findMany({
           where: { ...w, status: "COMPLETED", completedAt: { not: null } },
-          select: { completedAt: true },
+          select: { completedAt: true, dueDate: true, actualDurationSeconds: true, estimatedDurationSeconds: true },
         }),
+        db.task.aggregate({ where: w, _sum: { actualDurationSeconds: true, estimatedDurationSeconds: true }, _avg: { actualDurationSeconds: true } }),
       ]);
     const counts = Object.fromEntries(
         groups.map((x: any) => [x.status, x._count]),
@@ -223,6 +228,7 @@ export async function registerAnalyticsRoutes(app: any, db: any, context: any) {
       const d = x.completedAt.toISOString().slice(0, 10);
       byDay[d] = (byDay[d] || 0) + 1;
     });
+    const timed = trend.filter((x: any) => x.estimatedDurationSeconds && x.actualDurationSeconds != null), onTime = trend.filter((x: any) => !x.dueDate || x.completedAt <= x.dueDate).length;
     return {
       ...ok({
         metrics: {
@@ -234,6 +240,11 @@ export async function registerAnalyticsRoutes(app: any, db: any, context: any) {
           overdue,
           clientVisible: visible,
           internal: total - visible,
+          averageActualHours: Math.round((durations._avg.actualDurationSeconds || 0) / 360) / 10,
+          estimatedHours: Math.round((durations._sum.estimatedDurationSeconds || 0) / 360) / 10,
+          actualHours: Math.round((durations._sum.actualDurationSeconds || 0) / 360) / 10,
+          averageVariancePercent: timed.length ? Math.round(timed.reduce((n: number, x: any) => n + ((x.actualDurationSeconds - x.estimatedDurationSeconds) / x.estimatedDurationSeconds) * 100, 0) / timed.length * 10) / 10 : 0,
+          onTimeCompletionRate: trend.length ? Math.round(onTime / trend.length * 1000) / 10 : 0,
         },
         trend: Object.entries(byDay).map(([date, count]) => ({ date, count })),
         rows,

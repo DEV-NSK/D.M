@@ -1,5 +1,6 @@
 import Fastify from 'fastify'; import cors from '@fastify/cors'; import cookie from '@fastify/cookie'; import jwt from '@fastify/jwt'; import bcrypt from 'bcryptjs'; import crypto from 'node:crypto'; import {PrismaClient, Role, MemberStatus, InvitationStatus} from '@prisma/client'; import {z} from 'zod';
 import {registerTaskRoutes} from './taskRoutes.js';
+import {registerTaskTimeRoutes} from './taskTimeRoutes.js';
 import {registerPortalRoutes} from './portalRoutes.js';
 import {registerAnalyticsRoutes} from './analyticsRoutes.js';
 import {canAssignRole, hasPermission, rolePermissions} from './authorization.js';
@@ -74,6 +75,7 @@ app.get('/api/v1/campaigns/:id/activities',{preHandler:guard('campaigns.view')},
 app.get('/api/v1/dashboard/summary',{preHandler:guard('organization.view')},async(q:any)=>{const org=q.member.organizationId,cScope:any=q.member.role==='CEO'?{}:{campaigns:{some:resourceScope(q.member)}},campaignScope:any=resourceScope(q.member),soon=new Date(Date.now()+30*86400000);const [totalClients,activeClients,totalCampaigns,activeCampaigns,plannedCampaigns,endingSoon,recentClients,recentCampaigns]=await Promise.all([db.client.count({where:{organizationId:org,status:{not:'ARCHIVED'},...cScope}}),db.client.count({where:{organizationId:org,status:'ACTIVE',...cScope}}),db.campaign.count({where:{organizationId:org,archivedAt:null,...campaignScope}}),db.campaign.count({where:{organizationId:org,status:'ACTIVE',...campaignScope}}),db.campaign.count({where:{organizationId:org,status:'PLANNED',...campaignScope}}),db.campaign.count({where:{organizationId:org,status:{in:['ACTIVE','PLANNED']},endDate:{lte:soon,gte:new Date()},...campaignScope}}),db.client.findMany({where:{organizationId:org,...cScope},take:5,orderBy:{updatedAt:'desc'},select:{id:true,name:true,status:true,updatedAt:true}}),db.campaign.findMany({where:{organizationId:org,...campaignScope},take:5,orderBy:{updatedAt:'desc'},select:{id:true,name:true,status:true,updatedAt:true}})]);return ok({totalClients,activeClients,totalCampaigns,activeCampaigns,plannedCampaigns,endingSoon,recentClients,recentCampaigns});});
 
 await registerTaskRoutes(app,db,guard,ok,fail);
+await registerTaskTimeRoutes(app,db,guard,ok,fail);
 await registerPortalRoutes(app,db,context);
 await registerAnalyticsRoutes(app,db,context);
 
