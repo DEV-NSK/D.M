@@ -33,6 +33,7 @@ export async function registerTaskTimeRoutes(app: any, db: any, guard: any, ok: 
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${q.params.id}))`;
         const task: any = await owned(tx, q.member, q.params.id);
         if (!task) throw Object.assign(new Error("Task not found or not assigned to you."), { statusCode: 403, code: "FORBIDDEN" });
+        if (task.blocked) throw Object.assign(new Error("Complete this task's SOP prerequisites first."), { statusCode: 409, code: "SOP_TASK_BLOCKED" });
         if (["COMPLETED", "CANCELLED", "IN_REVIEW"].includes(task.status)) throw Object.assign(new Error("This task cannot be started in its current state."), { statusCode: 422, code: "INVALID_TASK_STATE" });
         if (await tx.taskWorkSession.findFirst({ where: { taskId: task.id, status: "ACTIVE" } })) throw Object.assign(new Error("This task already has an active work session."), { statusCode: 409, code: "ACTIVE_SESSION_EXISTS" });
         const now = new Date();
@@ -85,6 +86,10 @@ export async function registerTaskTimeRoutes(app: any, db: any, guard: any, ok: 
         const actualDurationSeconds = aggregate._sum.durationSeconds || 0;
         const updated = await tx.task.update({ where: { id: task.id }, data: { status: "COMPLETED", progressPercentage: 100, completedAt: now, completedBy: q.member.userId, actualDurationSeconds, updatedBy: q.member.userId } });
         await emit(tx, q.member, task.id, "TASK_COMPLETED", "Completed task", { actualDurationSeconds, estimatedDurationSeconds: task.estimatedDurationSeconds });
+        if(task.sopExecutionId&&task.sopTemplateTaskId){
+          const dependents=await tx.sopTaskDependency.findMany({where:{dependsOnSopTemplateTaskId:task.sopTemplateTaskId},select:{sopTemplateTaskId:true}});
+          for(const dependent of dependents){const prerequisites=await tx.sopTaskDependency.findMany({where:{sopTemplateTaskId:dependent.sopTemplateTaskId},select:{dependsOnSopTemplateTaskId:true}}),remaining=await tx.task.count({where:{sopExecutionId:task.sopExecutionId,sopTemplateTaskId:{in:prerequisites.map((x:any)=>x.dependsOnSopTemplateTaskId)},status:{not:'COMPLETED'}}});if(!remaining){const unlocked=await tx.task.findFirst({where:{sopExecutionId:task.sopExecutionId,sopTemplateTaskId:dependent.sopTemplateTaskId,blocked:true}});if(unlocked){await tx.task.update({where:{id:unlocked.id},data:{blocked:false}});await emit(tx,q.member,unlocked.id,'SOP_TASK_UNBLOCKED','SOP prerequisites completed')}}}
+        }
         return updated;
       });
       await notify(q.params.id, q.member.organizationId, "TASK_COMPLETED", { completedAt: result.completedAt, actualDurationSeconds: result.actualDurationSeconds });

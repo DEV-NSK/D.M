@@ -3,6 +3,7 @@ import {registerTaskRoutes} from './taskRoutes.js';
 import {registerTaskTimeRoutes} from './taskTimeRoutes.js';
 import {registerPortalRoutes} from './portalRoutes.js';
 import {registerAnalyticsRoutes} from './analyticsRoutes.js';
+import {registerSopRoutes} from './sopRoutes.js';
 import {canAssignRole, hasPermission, rolePermissions} from './authorization.js';
 const db=new PrismaClient(); const app=Fastify({logger:true});
 const frontendUrl=process.env.FRONTEND_URL||'http://localhost:3000';
@@ -78,5 +79,6 @@ await registerTaskRoutes(app,db,guard,ok,fail);
 await registerTaskTimeRoutes(app,db,guard,ok,fail);
 await registerPortalRoutes(app,db,context);
 await registerAnalyticsRoutes(app,db,context);
+registerSopRoutes(app,db,guard,ok,fail);
 
 app.listen({port:Number(process.env.PORT||4000),host:'0.0.0.0'});

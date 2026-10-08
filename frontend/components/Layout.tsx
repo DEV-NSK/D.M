@@ -3,12 +3,12 @@
 import Link from 'next/link';
 import {usePathname,useRouter} from 'next/navigation';
 import {useState} from 'react';
-import {BarChart3,Bell,BriefcaseBusiness,Building2,CalendarDays,ChevronRight,CircleHelp,LayoutDashboard,LogOut,Menu,Search,Settings,SquareCheckBig,UserRound,UsersRound,X} from 'lucide-react';
+import {BarChart3,Bell,BriefcaseBusiness,Building2,CalendarDays,ChevronRight,CircleHelp,LayoutDashboard,LogOut,Menu,Search,Settings,SquareCheckBig,UserRound,UsersRound,Workflow,X} from 'lucide-react';
 
 const api=process.env.NEXT_PUBLIC_API_URL||'http://localhost:4000/api/v1';
 type Item=[string,string,any,string?];
 const allGroups:{label:string;items:Item[]}[]=[
-  {label:'Main',items:[['Dashboard','/dashboard',LayoutDashboard],['Clients','/clients',Building2,'clients.view'],['Campaigns','/campaigns',BriefcaseBusiness,'campaigns.view'],['Tasks','/tasks',SquareCheckBig,'tasks.create'],['My tasks','/my-tasks',SquareCheckBig,'tasks.view'],['Calendar','/calendar',CalendarDays,'tasks.view'],['Analytics','/analytics',BarChart3,'analytics'],['Teams','/teams',UsersRound,'teams.view']]},
+  {label:'Main',items:[['Dashboard','/dashboard',LayoutDashboard],['Clients','/clients',Building2,'clients.view'],['Campaigns','/campaigns',BriefcaseBusiness,'campaigns.view'],['SOP operations','/sops',Workflow,'sop.view'],['Tasks','/tasks',SquareCheckBig,'tasks.create'],['My tasks','/my-tasks',SquareCheckBig,'tasks.view'],['Calendar','/calendar',CalendarDays,'tasks.view'],['Analytics','/analytics',BarChart3,'analytics'],['Teams','/teams',UsersRound,'teams.view']]},
   {label:'Workspace',items:[['Reports','/reports',BarChart3,'reports'],['Notifications','/notifications',Bell],['Members','/members',UserRound,'members.view'],['Invitations','/invitations',UsersRound,'members.invite']]},
   {label:'Settings',items:[['Organization settings','/settings',Settings,'organization.update'],['My profile','/profile',UserRound]]},
 ];
