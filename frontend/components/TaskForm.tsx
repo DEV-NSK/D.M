@@ -204,8 +204,8 @@ export function TaskForm({ task, role }: any) {
             Due date
             <input
               name="dueDate"
-              type="date"
-              defaultValue={task?.dueDate?.slice(0, 10)}
+              type="datetime-local"
+              defaultValue={task?.dueDate ? new Date(new Date(task.dueDate).getTime() - new Date(task.dueDate).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}
             />
           </label>
           <label>

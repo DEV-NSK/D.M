@@ -1,7 +1,11 @@
-'use client';
-import {useState} from 'react';import {Layout} from '../../../components/Layout';import {AnalyticsNav,AnalyticsState,Bars,DateRange,Metrics,statusPill,useAnalytics} from '../../../components/AnalyticsUI';import {useWorkspace} from '../../../components/useWorkspace';
-export default function TaskAnalytics(){
- const me=useWorkspace(),[days,setDays]=useState(30),state=useAnalytics('/analytics/tasks',days),d=state.data;
- if(!me)return <div className="loading">Loading…</div>;
- return <Layout me={me}><header className="page-head"><div><p className="eyebrow">ANALYTICS</p><h1>Task performance</h1><p>Completion, status, visibility, and deadline performance.</p></div><DateRange days={days} setDays={setDays}/></header><AnalyticsNav/><AnalyticsState state={state}/>{d&&<><Metrics items={Object.entries(d.metrics) as any}/><Bars data={d.trend}/><section className="card table-card"><div className="card-title"><h2>Task detail</h2></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Campaign</th><th>Status</th><th>Priority</th><th>Due</th></tr></thead><tbody>{d.rows.map((x:any)=><tr key={x.id}><td>{x.title}<small>{x.assignees.map((a:any)=>a.user.name).join(', ')||'Unassigned'}</small></td><td>{x.campaign.name}</td><td>{statusPill(x.status)}</td><td>{x.priority}</td><td>{x.dueDate?new Date(x.dueDate).toLocaleDateString():'—'}</td></tr>)}</tbody></table></div></section></>}</Layout>
+"use client";
+import { useState } from "react";
+import { Layout } from "../../../components/Layout";
+import { AnalyticsNav, AnalyticsState, Bars, DateRange, Metrics, statusPill, useAnalytics } from "../../../components/AnalyticsUI";
+import { formatDuration } from "../../../components/TaskTimer";
+import { useWorkspace } from "../../../components/useWorkspace";
+export default function TaskAnalytics() {
+  const me = useWorkspace(), [days, setDays] = useState(30), state = useAnalytics("/analytics/tasks", days), d = state.data;
+  if (!me) return <div className="loading">Loading…</div>;
+  return <Layout me={me}><header className="page-head"><div><p className="eyebrow">ANALYTICS</p><h1>Task performance</h1><p>Completion, tracked work, variance, and deadline performance.</p></div><DateRange days={days} setDays={setDays} /></header><AnalyticsNav /><AnalyticsState state={state} />{d && <><Metrics items={Object.entries(d.metrics) as any} /><Bars data={d.trend} /><section className="card table-card"><div className="card-title"><h2>Task detail</h2></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Campaign</th><th>Status</th><th>Estimated</th><th>Actual</th><th>Due</th></tr></thead><tbody>{d.rows.map((x: any) => <tr key={x.id}><td>{x.title}<small>{x.assignees.map((a: any) => a.user.name).join(", ") || "Unassigned"}</small></td><td>{x.campaign.name}</td><td>{statusPill(x.status)}</td><td>{x.estimatedDurationSeconds ? formatDuration(x.estimatedDurationSeconds) : "—"}</td><td>{formatDuration(x.actualDurationSeconds)}</td><td>{x.dueDate ? new Date(x.dueDate).toLocaleString() : "—"}</td></tr>)}</tbody></table></div></section></>}</Layout>;
 }
