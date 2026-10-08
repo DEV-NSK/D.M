@@ -153,16 +153,14 @@ function createTemplate(db: any, management: any, ok: any, fail: any) {
         });
       return template;
     });
-    return r
-      .status(201)
-      .send(
-        ok(
-          await db.sopTemplate.findUnique({
-            where: { id: created.id },
-            include: fullInclude,
-          }),
-        ),
-      );
+    return r.status(201).send(
+      ok(
+        await db.sopTemplate.findUnique({
+          where: { id: created.id },
+          include: fullInclude,
+        }),
+      ),
+    );
   };
 }
 export function registerSopRoutes(
@@ -172,6 +170,18 @@ export function registerSopRoutes(
   ok: any,
   fail: any,
 ) {
+  const taskScope = (m: any) =>
+    m.role === "CEO"
+      ? {}
+      : m.role === "EMPLOYEE"
+        ? { assignees: { some: { userId: m.userId } } }
+        : m.role === "TEAM_LEAD"
+          ? { team: { teamLeadId: m.userId } }
+          : {
+              team: { OR: [{ managerId: m.userId }, { teamLeadId: m.userId }] },
+            };
+  const executionScope = (m: any) =>
+    m.role === "CEO" ? {} : { tasks: { some: taskScope(m) } };
   const management = (q: any, r: any) =>
     ["CEO", "MANAGER"].includes(q.member.role) ||
     r
@@ -264,7 +274,10 @@ export function registerSopRoutes(
     { preHandler: guard("sop.view") },
     async (q: any) => {
       const rows = await db.sopExecution.findMany({
-        where: { organizationId: q.member.organizationId },
+        where: {
+          organizationId: q.member.organizationId,
+          ...executionScope(q.member),
+        },
         take: 100,
         orderBy: { updatedAt: "desc" },
         include: {
@@ -273,10 +286,16 @@ export function registerSopRoutes(
           days: {
             orderBy: { dayNumber: "asc" },
             include: {
-              tasks: { select: { status: true, blocked: true, dueDate: true } },
+              tasks: {
+                where: taskScope(q.member),
+                select: { status: true, blocked: true, dueDate: true },
+              },
             },
           },
-          tasks: { select: { status: true, blocked: true, dueDate: true } },
+          tasks: {
+            where: taskScope(q.member),
+            select: { status: true, blocked: true, dueDate: true },
+          },
         },
       });
       return ok(
@@ -298,7 +317,11 @@ export function registerSopRoutes(
     { preHandler: guard("sop.view") },
     async (q: any, r: any) => {
       const x = await db.sopExecution.findFirst({
-        where: { id: q.params.id, organizationId: q.member.organizationId },
+        where: {
+          id: q.params.id,
+          organizationId: q.member.organizationId,
+          ...executionScope(q.member),
+        },
         include: {
           campaign: { include: { client: true } },
           template: true,
@@ -306,6 +329,7 @@ export function registerSopRoutes(
             orderBy: { dayNumber: "asc" },
             include: {
               tasks: {
+                where: taskScope(q.member),
                 orderBy: { createdAt: "asc" },
                 include: {
                   team: true,
@@ -317,7 +341,7 @@ export function registerSopRoutes(
               },
             },
           },
-          tasks: true,
+          tasks: { where: taskScope(q.member) },
           activities: { orderBy: { createdAt: "desc" }, take: 50 },
         },
       });
