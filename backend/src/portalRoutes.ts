@@ -1,53 +1,855 @@
-import {z} from 'zod';
-import {publish,subscribe} from './realtime.js';
+import { z } from "zod";
+import { publish, subscribe } from "./realtime.js";
 
-const page=z.object({page:z.coerce.number().int().min(1).default(1),page_size:z.coerce.number().int().min(1).max(100).default(20),search:z.string().optional(),status:z.string().optional(),campaign_id:z.string().optional(),review:z.string().optional(),due:z.enum(['overdue','upcoming']).optional()});
-const response=(data:any)=>({success:true,data});
-const error=(code:string,message:string)=>({success:false,error:{code,message}});
+const page = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  page_size: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().optional(),
+  status: z.string().optional(),
+  campaign_id: z.string().optional(),
+  review: z.string().optional(),
+  due: z.enum(["overdue", "upcoming"]).optional(),
+});
+const response = (data: any) => ({ success: true, data });
+const error = (code: string, message: string) => ({
+  success: false,
+  error: { code, message },
+});
 
-export async function registerPortalRoutes(app:any,db:any,context:any){
-  async function portal(q:any,r:any){const m=await context(q,r);if(!m)return null;const cm=await db.clientMembership.findFirst({where:{organizationId:m.organizationId,userId:m.userId,status:'ACTIVE'},include:{client:true}});if(!cm||m.role!=='CLIENT'){r.status(403).send(error('FORBIDDEN','An active client membership is required.'));return null;}q.member=m;q.clientMember=cm;return cm;}
-  const guard=async(q:any,r:any)=>{await portal(q,r)};
-  const taskWhere=(q:any)=>({organizationId:q.member.organizationId,visibility:'CLIENT_VISIBLE',archivedAt:null,campaign:{clientId:q.clientMember.clientId,archivedAt:null}});
-  const accessibleSubmission=async(q:any,submissionId:string)=>db.taskSubmission.findFirst({where:{id:submissionId,organizationId:q.member.organizationId,clientVisible:true,task:taskWhere(q)},include:{task:{include:{campaign:true}},deliverables:true,clientReviews:{include:{reviewer:{select:{id:true,name:true}}},orderBy:{createdAt:'desc'}}}});
-  async function staffIds(org:string){return (await db.membership.findMany({where:{organizationId:org,status:'ACTIVE',role:{not:'CLIENT'}},select:{userId:true}})).map((x:any)=>x.userId)}
-  async function notify(tx:any,ids:string[],org:string,type:string,title:string,message:string,entityType:string,entityId:string){if(ids.length)await tx.notification.createMany({data:ids.map(recipientId=>({organizationId:org,recipientId,type,title,message,entityType,entityId}))});}
+export async function registerPortalRoutes(app: any, db: any, context: any) {
+  async function portal(q: any, r: any) {
+    const m = await context(q, r);
+    if (!m) return null;
+    const cm = await db.clientMembership.findFirst({
+      where: {
+        organizationId: m.organizationId,
+        userId: m.userId,
+        status: "ACTIVE",
+      },
+      include: { client: true },
+    });
+    if (!cm || m.role !== "CLIENT") {
+      r.status(403).send(
+        error("FORBIDDEN", "An active client membership is required."),
+      );
+      return null;
+    }
+    q.member = m;
+    q.clientMember = cm;
+    return cm;
+  }
+  const guard = async (q: any, r: any) => {
+    await portal(q, r);
+  };
+  const taskWhere = (q: any) => ({
+    organizationId: q.member.organizationId,
+    visibility: "CLIENT_VISIBLE",
+    archivedAt: null,
+    campaign: { clientId: q.clientMember.clientId, archivedAt: null },
+  });
+  const accessibleSubmission = async (q: any, submissionId: string) =>
+    db.taskSubmission.findFirst({
+      where: {
+        id: submissionId,
+        organizationId: q.member.organizationId,
+        clientVisible: true,
+        task: taskWhere(q),
+      },
+      include: {
+        task: { include: { campaign: true } },
+        deliverables: true,
+        clientReviews: {
+          include: { reviewer: { select: { id: true, name: true } } },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+  async function staffIds(org: string) {
+    return (
+      await db.membership.findMany({
+        where: {
+          organizationId: org,
+          status: "ACTIVE",
+          role: { not: "CLIENT" },
+        },
+        select: { userId: true },
+      })
+    ).map((x: any) => x.userId);
+  }
+  async function notify(
+    tx: any,
+    ids: string[],
+    org: string,
+    type: string,
+    title: string,
+    message: string,
+    entityType: string,
+    entityId: string,
+  ) {
+    if (ids.length)
+      await tx.notification.createMany({
+        data: ids.map((recipientId) => ({
+          organizationId: org,
+          recipientId,
+          type,
+          title,
+          message,
+          entityType,
+          entityId,
+        })),
+      });
+  }
 
-  const staffGuard=async(q:any,r:any)=>{const m=await context(q,r);if(!m)return;if(!['CEO','MANAGER'].includes(m.role)){r.status(403).send(error('FORBIDDEN','Only owners and managers can manage client access.'));return;}q.member=m};
-  app.get('/api/v1/clients/:id/client-users',{preHandler:staffGuard},async(q:any,r:any)=>{const client=await db.client.findFirst({where:{id:q.params.id,organizationId:q.member.organizationId}});if(!client)return r.status(404).send(error('NOT_FOUND','Client not found.'));return response(await db.clientMembership.findMany({where:{clientId:client.id,organizationId:q.member.organizationId},include:{user:{select:{id:true,name:true,email:true}}},orderBy:{createdAt:'desc'}}))});
-  app.post('/api/v1/clients/:id/client-users',{preHandler:staffGuard},async(q:any,r:any)=>{const v=z.object({userId:z.string(),role:z.enum(['CLIENT_ADMIN','CLIENT_MEMBER']).default('CLIENT_MEMBER')}).parse(q.body),client=await db.client.findFirst({where:{id:q.params.id,organizationId:q.member.organizationId}}),member=await db.membership.findFirst({where:{userId:v.userId,organizationId:q.member.organizationId,role:'CLIENT'}});if(!client||!member)return r.status(422).send(error('INVALID_CLIENT_USER','Client and an organization user with the CLIENT role are required.'));const cm=await db.clientMembership.upsert({where:{clientId_userId:{clientId:client.id,userId:v.userId}},create:{organizationId:q.member.organizationId,clientId:client.id,userId:v.userId,role:v.role},update:{role:v.role,status:'ACTIVE'}});await db.activityLog.create({data:{organizationId:q.member.organizationId,actorUserId:q.member.userId,action:'CLIENT_MEMBER_ADDED',entityType:'client',entityId:client.id}});return r.status(201).send(response(cm))});
-  app.patch('/api/v1/clients/:id/client-users/:membershipId',{preHandler:staffGuard},async(q:any,r:any)=>{const cm=await db.clientMembership.findFirst({where:{id:q.params.membershipId,clientId:q.params.id,organizationId:q.member.organizationId}});if(!cm)return r.status(404).send(error('NOT_FOUND','Client user not found.'));const v=z.object({role:z.enum(['CLIENT_ADMIN','CLIENT_MEMBER']).optional(),status:z.enum(['ACTIVE','SUSPENDED','DEACTIVATED']).optional()}).parse(q.body);return response(await db.clientMembership.update({where:{id:cm.id},data:v}))});
+  const staffGuard = async (q: any, r: any) => {
+    const m = await context(q, r);
+    if (!m) return;
+    if (!["CEO", "MANAGER"].includes(m.role)) {
+      r.status(403).send(
+        error(
+          "FORBIDDEN",
+          "Only owners and managers can manage client access.",
+        ),
+      );
+      return;
+    }
+    q.member = m;
+  };
+  app.get(
+    "/api/v1/clients/:id/client-users",
+    { preHandler: staffGuard },
+    async (q: any, r: any) => {
+      const client = await db.client.findFirst({
+        where: { id: q.params.id, organizationId: q.member.organizationId },
+      });
+      if (!client)
+        return r.status(404).send(error("NOT_FOUND", "Client not found."));
+      return response(
+        await db.clientMembership.findMany({
+          where: {
+            clientId: client.id,
+            organizationId: q.member.organizationId,
+          },
+          include: { user: { select: { id: true, name: true, email: true } } },
+          orderBy: { createdAt: "desc" },
+        }),
+      );
+    },
+  );
+  app.post(
+    "/api/v1/clients/:id/client-users",
+    { preHandler: staffGuard },
+    async (q: any, r: any) => {
+      const v = z
+          .object({
+            userId: z.string(),
+            role: z
+              .enum(["CLIENT_ADMIN", "CLIENT_MEMBER"])
+              .default("CLIENT_MEMBER"),
+          })
+          .parse(q.body),
+        client = await db.client.findFirst({
+          where: { id: q.params.id, organizationId: q.member.organizationId },
+        }),
+        member = await db.membership.findFirst({
+          where: {
+            userId: v.userId,
+            organizationId: q.member.organizationId,
+            role: "CLIENT",
+          },
+        });
+      if (!client || !member)
+        return r
+          .status(422)
+          .send(
+            error(
+              "INVALID_CLIENT_USER",
+              "Client and an organization user with the CLIENT role are required.",
+            ),
+          );
+      const cm = await db.clientMembership.upsert({
+        where: { clientId_userId: { clientId: client.id, userId: v.userId } },
+        create: {
+          organizationId: q.member.organizationId,
+          clientId: client.id,
+          userId: v.userId,
+          role: v.role,
+        },
+        update: { role: v.role, status: "ACTIVE" },
+      });
+      await db.activityLog.create({
+        data: {
+          organizationId: q.member.organizationId,
+          actorUserId: q.member.userId,
+          action: "CLIENT_MEMBER_ADDED",
+          entityType: "client",
+          entityId: client.id,
+        },
+      });
+      return r.status(201).send(response(cm));
+    },
+  );
+  app.patch(
+    "/api/v1/clients/:id/client-users/:membershipId",
+    { preHandler: staffGuard },
+    async (q: any, r: any) => {
+      const cm = await db.clientMembership.findFirst({
+        where: {
+          id: q.params.membershipId,
+          clientId: q.params.id,
+          organizationId: q.member.organizationId,
+        },
+      });
+      if (!cm)
+        return r.status(404).send(error("NOT_FOUND", "Client user not found."));
+      const v = z
+        .object({
+          role: z.enum(["CLIENT_ADMIN", "CLIENT_MEMBER"]).optional(),
+          status: z.enum(["ACTIVE", "SUSPENDED", "DEACTIVATED"]).optional(),
+        })
+        .parse(q.body);
+      return response(
+        await db.clientMembership.update({ where: { id: cm.id }, data: v }),
+      );
+    },
+  );
 
-  app.get('/api/v1/portal/dashboard',{preHandler:guard},async(q:any)=>{const w=taskWhere(q),campaign={organizationId:q.member.organizationId,clientId:q.clientMember.clientId,archivedAt:null};const [activeCampaigns,pendingReviews,completed,recentActivity,unread]=await Promise.all([db.campaign.count({where:{...campaign,status:{in:['ACTIVE','PLANNED']}}}),db.taskSubmission.count({where:{organizationId:q.member.organizationId,clientVisible:true,status:'PENDING_REVIEW',task:w}}),db.task.count({where:{...w,status:'COMPLETED'}}),db.taskActivity.findMany({where:{organizationId:q.member.organizationId,task:w,activityType:{in:['SUBMISSION_CREATED','CLIENT_COMMENTED','CLIENT_APPROVED','CLIENT_REQUESTED_CHANGES','STATUS_CHANGED']}},take:10,orderBy:{createdAt:'desc'},select:{id:true,taskId:true,activityType:true,description:true,createdAt:true,task:{select:{title:true}}}}),db.notification.count({where:{organizationId:q.member.organizationId,recipientId:q.member.userId,readAt:null}})]);return response({client:q.clientMember.client,activeCampaigns,pendingReviews,awaitingAction:pendingReviews,completed,recentActivity,unreadNotifications:unread})});
-
-  app.get('/api/v1/portal/campaigns',{preHandler:guard},async(q:any)=>{const v=page.parse(q.query),where:any={organizationId:q.member.organizationId,clientId:q.clientMember.clientId,archivedAt:null};if(v.status)where.status=v.status;if(v.search)where.name={contains:v.search,mode:'insensitive'};const [rows,total]=await Promise.all([db.campaign.findMany({where,skip:(v.page-1)*v.page_size,take:v.page_size,orderBy:{updatedAt:'desc'},select:{id:true,name:true,description:true,status:true,startDate:true,endDate:true,updatedAt:true,tasks:{where:{visibility:'CLIENT_VISIBLE',archivedAt:null},select:{status:true,submissions:{where:{clientVisible:true,status:'PENDING_REVIEW'},select:{id:true}}}}}}),db.campaign.count({where})]);const data=rows.map((c:any)=>{const done=c.tasks.filter((t:any)=>t.status==='COMPLETED').length;return {...c,progress:c.tasks.length?Math.round(done/c.tasks.length*100):0,pendingReviews:c.tasks.reduce((n:number,t:any)=>n+t.submissions.length,0),tasks:undefined}});return {...response(data),pagination:{page:v.page,page_size:v.page_size,total,total_pages:Math.ceil(total/v.page_size)}}});
-
-  app.get('/api/v1/portal/campaigns/:id',{preHandler:guard},async(q:any,r:any)=>{const campaign=await db.campaign.findFirst({where:{id:q.params.id,organizationId:q.member.organizationId,clientId:q.clientMember.clientId,archivedAt:null},select:{id:true,name:true,description:true,status:true,campaignType:true,objectiveSummary:true,startDate:true,endDate:true,updatedAt:true,objectives:{select:{id:true,title:true,description:true,metricType:true,targetValue:true,unit:true}},tasks:{where:{visibility:'CLIENT_VISIBLE',archivedAt:null},select:{id:true,title:true,description:true,status:true,progressPercentage:true,dueDate:true,requiresClientReview:true,updatedAt:true,submissions:{where:{clientVisible:true},select:{id:true,submissionNumber:true,status:true,createdAt:true}}}},activities:{where:{activityType:{in:['CAMPAIGN_UPDATED','STATUS_CHANGED']}},take:30,orderBy:{createdAt:'desc'},select:{id:true,activityType:true,description:true,createdAt:true}}}});if(!campaign)return r.status(404).send(error('NOT_FOUND','Campaign not found.'));return response(campaign)});
-
-  app.get('/api/v1/portal/tasks',{preHandler:guard},async(q:any)=>{const v=page.parse(q.query),where:any=taskWhere(q);if(v.status)where.status=v.status;if(v.campaign_id)where.campaignId=v.campaign_id;if(v.search)where.OR=[{title:{contains:v.search,mode:'insensitive'}},{campaign:{name:{contains:v.search,mode:'insensitive'}}}];if(v.review==='pending')where.submissions={some:{clientVisible:true,status:'PENDING_REVIEW'}};if(v.due==='overdue')where.dueDate={lt:new Date()};if(v.due==='upcoming')where.dueDate={gte:new Date()};const [data,total]=await Promise.all([db.task.findMany({where,skip:(v.page-1)*v.page_size,take:v.page_size,orderBy:{updatedAt:'desc'},select:{id:true,title:true,description:true,status:true,progressPercentage:true,dueDate:true,requiresClientReview:true,updatedAt:true,campaign:{select:{id:true,name:true}},submissions:{where:{clientVisible:true},orderBy:{submissionNumber:'desc'},take:1,select:{id:true,status:true,submissionNumber:true}}}}),db.task.count({where})]);return {...response(data),pagination:{page:v.page,page_size:v.page_size,total,total_pages:Math.ceil(total/v.page_size)}}});
-
-  app.get('/api/v1/portal/tasks/:id',{preHandler:guard},async(q:any,r:any)=>{
-    const task=await db.task.findFirst({where:{id:q.params.id,...taskWhere(q)},select:{
-      id:true,title:true,description:true,status:true,progressPercentage:true,dueDate:true,requiresClientReview:true,updatedAt:true,
-      campaign:{select:{id:true,name:true,status:true}},
-      comments:{where:{deletedAt:null,visibility:'CLIENT_VISIBLE'},orderBy:{createdAt:'asc'},select:{id:true,content:true,createdAt:true,author:{select:{id:true,name:true}}}},
-      submissions:{where:{clientVisible:true},orderBy:{submissionNumber:'desc'},select:{id:true,submissionNumber:true,description:true,status:true,createdAt:true,deliverables:{select:{id:true,fileName:true,fileSize:true,mimeType:true}},clientReviews:{orderBy:{createdAt:'desc'},select:{id:true,status:true,comment:true,createdAt:true,reviewer:{select:{name:true}}}}}}
-    }});
-    return task?response(task):r.status(404).send(error('NOT_FOUND','Task not found.'));
+  app.get("/api/v1/portal/dashboard", { preHandler: guard }, async (q: any) => {
+    const w = taskWhere(q),
+      campaign = {
+        organizationId: q.member.organizationId,
+        clientId: q.clientMember.clientId,
+        archivedAt: null,
+      };
+    const [activeCampaigns, pendingReviews, completed, recentActivity, unread] =
+      await Promise.all([
+        db.campaign.count({
+          where: { ...campaign, status: { in: ["ACTIVE", "PLANNED"] } },
+        }),
+        db.taskSubmission.count({
+          where: {
+            organizationId: q.member.organizationId,
+            clientVisible: true,
+            status: "PENDING_REVIEW",
+            task: w,
+          },
+        }),
+        db.task.count({ where: { ...w, status: "COMPLETED" } }),
+        db.taskActivity.findMany({
+          where: {
+            organizationId: q.member.organizationId,
+            task: w,
+            activityType: {
+              in: [
+                "SUBMISSION_CREATED",
+                "CLIENT_COMMENTED",
+                "CLIENT_APPROVED",
+                "CLIENT_REQUESTED_CHANGES",
+                "STATUS_CHANGED",
+              ],
+            },
+          },
+          take: 10,
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            taskId: true,
+            activityType: true,
+            description: true,
+            createdAt: true,
+            task: { select: { title: true } },
+          },
+        }),
+        db.notification.count({
+          where: {
+            organizationId: q.member.organizationId,
+            recipientId: q.member.userId,
+            readAt: null,
+          },
+        }),
+      ]);
+    return response({
+      client: q.clientMember.client,
+      activeCampaigns,
+      pendingReviews,
+      awaitingAction: pendingReviews,
+      completed,
+      recentActivity,
+      unreadNotifications: unread,
+    });
   });
 
-  app.post('/api/v1/portal/tasks/:id/comments',{preHandler:guard},async(q:any,r:any)=>{const {content}=z.object({content:z.string().trim().min(1).max(10000)}).parse(q.body);const task=await db.task.findFirst({where:{id:q.params.id,...taskWhere(q)}});if(!task)return r.status(404).send(error('NOT_FOUND','Task not found.'));const ids=await staffIds(q.member.organizationId);const item=await db.$transaction(async(tx:any)=>{const c=await tx.taskComment.create({data:{organizationId:q.member.organizationId,taskId:task.id,authorId:q.member.userId,content,visibility:'CLIENT_VISIBLE'}});await tx.taskActivity.create({data:{organizationId:q.member.organizationId,taskId:task.id,actorUserId:q.member.userId,activityType:'CLIENT_COMMENTED',description:'Client added a comment'}});await notify(tx,ids,q.member.organizationId,'CLIENT_COMMENTED','Client commented',content.slice(0,180),'task',task.id);return c});publish(ids,'client.comment.created',{entityType:'task',entityId:task.id});return r.status(201).send(response(item))});
+  app.get("/api/v1/portal/campaigns", { preHandler: guard }, async (q: any) => {
+    const v = page.parse(q.query),
+      where: any = {
+        organizationId: q.member.organizationId,
+        clientId: q.clientMember.clientId,
+        archivedAt: null,
+      };
+    if (v.status) where.status = v.status;
+    if (v.search) where.name = { contains: v.search, mode: "insensitive" };
+    const [rows, total] = await Promise.all([
+      db.campaign.findMany({
+        where,
+        skip: (v.page - 1) * v.page_size,
+        take: v.page_size,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+          updatedAt: true,
+          tasks: {
+            where: { visibility: "CLIENT_VISIBLE", archivedAt: null },
+            select: {
+              status: true,
+              submissions: {
+                where: { clientVisible: true, status: "PENDING_REVIEW" },
+                select: { id: true },
+              },
+            },
+          },
+        },
+      }),
+      db.campaign.count({ where }),
+    ]);
+    const data = rows.map((c: any) => {
+      const done = c.tasks.filter((t: any) => t.status === "COMPLETED").length;
+      return {
+        ...c,
+        progress: c.tasks.length
+          ? Math.round((done / c.tasks.length) * 100)
+          : 0,
+        pendingReviews: c.tasks.reduce(
+          (n: number, t: any) => n + t.submissions.length,
+          0,
+        ),
+        tasks: undefined,
+      };
+    });
+    return {
+      ...response(data),
+      pagination: {
+        page: v.page,
+        page_size: v.page_size,
+        total,
+        total_pages: Math.ceil(total / v.page_size),
+      },
+    };
+  });
 
-  app.get('/api/v1/portal/reviews',{preHandler:guard},async(q:any)=>{const v=page.parse(q.query),where:any={organizationId:q.member.organizationId,clientVisible:true,task:taskWhere(q)};if(v.status)where.status=v.status;const [data,total]=await Promise.all([db.taskSubmission.findMany({where,skip:(v.page-1)*v.page_size,take:v.page_size,orderBy:[{task:{dueDate:'asc'}},{createdAt:'desc'}],select:{id:true,submissionNumber:true,description:true,status:true,createdAt:true,task:{select:{id:true,title:true,dueDate:true,campaign:{select:{id:true,name:true}}}},clientReviews:{orderBy:{createdAt:'desc'},take:1,select:{status:true,comment:true,reviewedAt:true}}}}),db.taskSubmission.count({where})]);return {...response(data),pagination:{page:v.page,page_size:v.page_size,total,total_pages:Math.ceil(total/v.page_size)}}});
-  app.get('/api/v1/portal/reviews/:id',{preHandler:guard},async(q:any,r:any)=>{const s=await accessibleSubmission(q,q.params.id);return s?response(s):r.status(404).send(error('NOT_FOUND','Review not found.'))});
+  app.get(
+    "/api/v1/portal/campaigns/:id",
+    { preHandler: guard },
+    async (q: any, r: any) => {
+      const campaign = await db.campaign.findFirst({
+        where: {
+          id: q.params.id,
+          organizationId: q.member.organizationId,
+          clientId: q.clientMember.clientId,
+          archivedAt: null,
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          campaignType: true,
+          objectiveSummary: true,
+          startDate: true,
+          endDate: true,
+          updatedAt: true,
+          objectives: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              metricType: true,
+              targetValue: true,
+              unit: true,
+            },
+          },
+          tasks: {
+            where: { visibility: "CLIENT_VISIBLE", archivedAt: null },
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              status: true,
+              progressPercentage: true,
+              dueDate: true,
+              requiresClientReview: true,
+              updatedAt: true,
+              submissions: {
+                where: { clientVisible: true },
+                select: {
+                  id: true,
+                  submissionNumber: true,
+                  status: true,
+                  createdAt: true,
+                },
+              },
+            },
+          },
+          activities: {
+            where: {
+              activityType: { in: ["CAMPAIGN_UPDATED", "STATUS_CHANGED"] },
+            },
+            take: 30,
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              activityType: true,
+              description: true,
+              createdAt: true,
+            },
+          },
+        },
+      });
+      if (!campaign)
+        return r.status(404).send(error("NOT_FOUND", "Campaign not found."));
+      return response(campaign);
+    },
+  );
 
-  async function review(q:any,r:any,status:'APPROVED'|'CHANGES_REQUESTED'){const {comment}=z.object({comment:z.string().trim().max(10000).optional()}).parse(q.body||{});if(status==='CHANGES_REQUESTED'&&!comment)return r.status(422).send(error('FEEDBACK_REQUIRED','Feedback is required when requesting changes.'));const s:any=await accessibleSubmission(q,q.params.id);if(!s)return r.status(404).send(error('NOT_FOUND','Review not found.'));if(s.status!=='PENDING_REVIEW')return r.status(409).send(error('ALREADY_REVIEWED','This submission is no longer awaiting review.'));const ids=await staffIds(q.member.organizationId);const result=await db.$transaction(async(tx:any)=>{const cr=await tx.clientReview.create({data:{organizationId:q.member.organizationId,clientId:q.clientMember.clientId,taskId:s.taskId,submissionId:s.id,reviewerId:q.member.userId,status,comment}});await tx.taskSubmission.update({where:{id:s.id},data:{status:status==='APPROVED'?'APPROVED':'REVISION_REQUIRED',reviewComment:comment||null,reviewedBy:q.member.userId,reviewedAt:new Date()}});await tx.task.update({where:{id:s.taskId},data:{status:status==='APPROVED'?'COMPLETED':'REVISION_REQUIRED',progressPercentage:status==='APPROVED'?100:undefined,updatedBy:q.member.userId,completedAt:status==='APPROVED'?new Date():null}});const event=status==='APPROVED'?'CLIENT_APPROVED':'CLIENT_REQUESTED_CHANGES';await tx.taskActivity.create({data:{organizationId:q.member.organizationId,taskId:s.taskId,actorUserId:q.member.userId,activityType:event,description:status==='APPROVED'?'Client approved the submission':'Client requested changes'}});await notify(tx,ids,q.member.organizationId,event,status==='APPROVED'?'Client approved submission':'Client requested changes',comment||`Submission #${s.submissionNumber} was approved`,'task',s.taskId);return cr});publish(ids,status==='APPROVED'?'client.reviewed':'client.changes_requested',{entityType:'task',entityId:s.taskId,submissionId:s.id});return response(result)}
-  app.post('/api/v1/portal/reviews/:id/approve',{preHandler:guard},(q:any,r:any)=>review(q,r,'APPROVED'));
-  app.post('/api/v1/portal/reviews/:id/request-changes',{preHandler:guard},(q:any,r:any)=>review(q,r,'CHANGES_REQUESTED'));
+  app.get("/api/v1/portal/tasks", { preHandler: guard }, async (q: any) => {
+    const v = page.parse(q.query),
+      where: any = taskWhere(q);
+    if (v.status) where.status = v.status;
+    if (v.campaign_id) where.campaignId = v.campaign_id;
+    if (v.search)
+      where.OR = [
+        { title: { contains: v.search, mode: "insensitive" } },
+        { campaign: { name: { contains: v.search, mode: "insensitive" } } },
+      ];
+    if (v.review === "pending")
+      where.submissions = {
+        some: { clientVisible: true, status: "PENDING_REVIEW" },
+      };
+    if (v.due === "overdue") where.dueDate = { lt: new Date() };
+    if (v.due === "upcoming") where.dueDate = { gte: new Date() };
+    const [data, total] = await Promise.all([
+      db.task.findMany({
+        where,
+        skip: (v.page - 1) * v.page_size,
+        take: v.page_size,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          progressPercentage: true,
+          dueDate: true,
+          requiresClientReview: true,
+          updatedAt: true,
+          campaign: { select: { id: true, name: true } },
+          submissions: {
+            where: { clientVisible: true },
+            orderBy: { submissionNumber: "desc" },
+            take: 1,
+            select: { id: true, status: true, submissionNumber: true },
+          },
+        },
+      }),
+      db.task.count({ where }),
+    ]);
+    return {
+      ...response(data),
+      pagination: {
+        page: v.page,
+        page_size: v.page_size,
+        total,
+        total_pages: Math.ceil(total / v.page_size),
+      },
+    };
+  });
 
-  app.get('/api/v1/notifications',{preHandler:async(q:any,r:any)=>{const m=await context(q,r);if(m)q.member=m}},async(q:any)=>{const v=page.parse(q.query);const where={organizationId:q.member.organizationId,recipientId:q.member.userId};const [data,total,unread]=await Promise.all([db.notification.findMany({where,skip:(v.page-1)*v.page_size,take:v.page_size,orderBy:{createdAt:'desc'}}),db.notification.count({where}),db.notification.count({where:{...where,readAt:null}})]);return {...response(data),unread,pagination:{page:v.page,page_size:v.page_size,total,total_pages:Math.ceil(total/v.page_size)}}});
-  app.patch('/api/v1/notifications/:id/read',{preHandler:async(q:any,r:any)=>{const m=await context(q,r);if(m)q.member=m}},async(q:any,r:any)=>{const n=await db.notification.findFirst({where:{id:q.params.id,organizationId:q.member.organizationId,recipientId:q.member.userId}});if(!n)return r.status(404).send(error('NOT_FOUND','Notification not found.'));return response(await db.notification.update({where:{id:n.id},data:{readAt:n.readAt||new Date()}}))});
-  app.post('/api/v1/notifications/read-all',{preHandler:async(q:any,r:any)=>{const m=await context(q,r);if(m)q.member=m}},async(q:any)=>{await db.notification.updateMany({where:{organizationId:q.member.organizationId,recipientId:q.member.userId,readAt:null},data:{readAt:new Date()}});return response({})});
+  app.get(
+    "/api/v1/portal/tasks/:id",
+    { preHandler: guard },
+    async (q: any, r: any) => {
+      const task = await db.task.findFirst({
+        where: { id: q.params.id, ...taskWhere(q) },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          progressPercentage: true,
+          dueDate: true,
+          requiresClientReview: true,
+          updatedAt: true,
+          campaign: { select: { id: true, name: true, status: true } },
+          comments: {
+            where: { deletedAt: null, visibility: "CLIENT_VISIBLE" },
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              content: true,
+              createdAt: true,
+              author: { select: { id: true, name: true } },
+            },
+          },
+          submissions: {
+            where: { clientVisible: true },
+            orderBy: { submissionNumber: "desc" },
+            select: {
+              id: true,
+              submissionNumber: true,
+              description: true,
+              status: true,
+              createdAt: true,
+              deliverables: {
+                select: {
+                  id: true,
+                  fileName: true,
+                  fileSize: true,
+                  mimeType: true,
+                },
+              },
+              clientReviews: {
+                orderBy: { createdAt: "desc" },
+                select: {
+                  id: true,
+                  status: true,
+                  comment: true,
+                  createdAt: true,
+                  reviewer: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+      return task
+        ? response(task)
+        : r.status(404).send(error("NOT_FOUND", "Task not found."));
+    },
+  );
 
-  app.get('/api/v1/realtime/events',async(q:any,r:any)=>{const m=await context(q,r);if(!m)return;r.hijack();r.raw.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','Access-Control-Allow-Origin':'http://localhost:3000','Access-Control-Allow-Credentials':'true'});const send=(event:string,payload:any)=>r.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);send('connected',{timestamp:new Date().toISOString()});const stop=subscribe(m.userId,send),heartbeat=setInterval(()=>r.raw.write(': heartbeat\n\n'),25000);q.raw.on('close',()=>{clearInterval(heartbeat);stop()})});
+  app.post(
+    "/api/v1/portal/tasks/:id/comments",
+    { preHandler: guard },
+    async (q: any, r: any) => {
+      const { content } = z
+        .object({ content: z.string().trim().min(1).max(10000) })
+        .parse(q.body);
+      const task = await db.task.findFirst({
+        where: { id: q.params.id, ...taskWhere(q) },
+      });
+      if (!task)
+        return r.status(404).send(error("NOT_FOUND", "Task not found."));
+      const ids = await staffIds(q.member.organizationId);
+      const item = await db.$transaction(async (tx: any) => {
+        const c = await tx.taskComment.create({
+          data: {
+            organizationId: q.member.organizationId,
+            taskId: task.id,
+            authorId: q.member.userId,
+            content,
+            visibility: "CLIENT_VISIBLE",
+          },
+        });
+        await tx.taskActivity.create({
+          data: {
+            organizationId: q.member.organizationId,
+            taskId: task.id,
+            actorUserId: q.member.userId,
+            activityType: "CLIENT_COMMENTED",
+            description: "Client added a comment",
+          },
+        });
+        await notify(
+          tx,
+          ids,
+          q.member.organizationId,
+          "CLIENT_COMMENTED",
+          "Client commented",
+          content.slice(0, 180),
+          "task",
+          task.id,
+        );
+        return c;
+      });
+      publish(ids, "client.comment.created", {
+        entityType: "task",
+        entityId: task.id,
+      });
+      return r.status(201).send(response(item));
+    },
+  );
+
+  app.get("/api/v1/portal/reviews", { preHandler: guard }, async (q: any) => {
+    const v = page.parse(q.query),
+      where: any = {
+        organizationId: q.member.organizationId,
+        clientVisible: true,
+        task: taskWhere(q),
+      };
+    if (v.status) where.status = v.status;
+    const [data, total] = await Promise.all([
+      db.taskSubmission.findMany({
+        where,
+        skip: (v.page - 1) * v.page_size,
+        take: v.page_size,
+        orderBy: [{ task: { dueDate: "asc" } }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          submissionNumber: true,
+          description: true,
+          status: true,
+          createdAt: true,
+          task: {
+            select: {
+              id: true,
+              title: true,
+              dueDate: true,
+              campaign: { select: { id: true, name: true } },
+            },
+          },
+          clientReviews: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { status: true, comment: true, reviewedAt: true },
+          },
+        },
+      }),
+      db.taskSubmission.count({ where }),
+    ]);
+    return {
+      ...response(data),
+      pagination: {
+        page: v.page,
+        page_size: v.page_size,
+        total,
+        total_pages: Math.ceil(total / v.page_size),
+      },
+    };
+  });
+  app.get(
+    "/api/v1/portal/reviews/:id",
+    { preHandler: guard },
+    async (q: any, r: any) => {
+      const s = await accessibleSubmission(q, q.params.id);
+      return s
+        ? response(s)
+        : r.status(404).send(error("NOT_FOUND", "Review not found."));
+    },
+  );
+
+  async function review(
+    q: any,
+    r: any,
+    status: "APPROVED" | "CHANGES_REQUESTED",
+  ) {
+    const { comment } = z
+      .object({ comment: z.string().trim().max(10000).optional() })
+      .parse(q.body || {});
+    if (status === "CHANGES_REQUESTED" && !comment)
+      return r
+        .status(422)
+        .send(
+          error(
+            "FEEDBACK_REQUIRED",
+            "Feedback is required when requesting changes.",
+          ),
+        );
+    const s: any = await accessibleSubmission(q, q.params.id);
+    if (!s) return r.status(404).send(error("NOT_FOUND", "Review not found."));
+    if (s.status !== "PENDING_REVIEW")
+      return r
+        .status(409)
+        .send(
+          error(
+            "ALREADY_REVIEWED",
+            "This submission is no longer awaiting review.",
+          ),
+        );
+    const ids = await staffIds(q.member.organizationId);
+    const result = await db.$transaction(async (tx: any) => {
+      const cr = await tx.clientReview.create({
+        data: {
+          organizationId: q.member.organizationId,
+          clientId: q.clientMember.clientId,
+          taskId: s.taskId,
+          submissionId: s.id,
+          reviewerId: q.member.userId,
+          status,
+          comment,
+        },
+      });
+      await tx.taskSubmission.update({
+        where: { id: s.id },
+        data: {
+          status: status === "APPROVED" ? "APPROVED" : "REVISION_REQUIRED",
+          reviewComment: comment || null,
+          reviewedBy: q.member.userId,
+          reviewedAt: new Date(),
+        },
+      });
+      await tx.task.update({
+        where: { id: s.taskId },
+        data: {
+          status: status === "APPROVED" ? "COMPLETED" : "REVISION_REQUIRED",
+          progressPercentage: status === "APPROVED" ? 100 : undefined,
+          updatedBy: q.member.userId,
+          completedAt: status === "APPROVED" ? new Date() : null,
+        },
+      });
+      const event =
+        status === "APPROVED" ? "CLIENT_APPROVED" : "CLIENT_REQUESTED_CHANGES";
+      await tx.taskActivity.create({
+        data: {
+          organizationId: q.member.organizationId,
+          taskId: s.taskId,
+          actorUserId: q.member.userId,
+          activityType: event,
+          description:
+            status === "APPROVED"
+              ? "Client approved the submission"
+              : "Client requested changes",
+        },
+      });
+      await notify(
+        tx,
+        ids,
+        q.member.organizationId,
+        event,
+        status === "APPROVED"
+          ? "Client approved submission"
+          : "Client requested changes",
+        comment || `Submission #${s.submissionNumber} was approved`,
+        "task",
+        s.taskId,
+      );
+      return cr;
+    });
+    publish(
+      ids,
+      status === "APPROVED" ? "client.reviewed" : "client.changes_requested",
+      { entityType: "task", entityId: s.taskId, submissionId: s.id },
+    );
+    return response(result);
+  }
+  app.post(
+    "/api/v1/portal/reviews/:id/approve",
+    { preHandler: guard },
+    (q: any, r: any) => review(q, r, "APPROVED"),
+  );
+  app.post(
+    "/api/v1/portal/reviews/:id/request-changes",
+    { preHandler: guard },
+    (q: any, r: any) => review(q, r, "CHANGES_REQUESTED"),
+  );
+
+  app.get(
+    "/api/v1/notifications",
+    {
+      preHandler: async (q: any, r: any) => {
+        const m = await context(q, r);
+        if (m) q.member = m;
+      },
+    },
+    async (q: any) => {
+      const v = page.parse(q.query);
+      const where = {
+        organizationId: q.member.organizationId,
+        recipientId: q.member.userId,
+      };
+      const [data, total, unread] = await Promise.all([
+        db.notification.findMany({
+          where,
+          skip: (v.page - 1) * v.page_size,
+          take: v.page_size,
+          orderBy: { createdAt: "desc" },
+        }),
+        db.notification.count({ where }),
+        db.notification.count({ where: { ...where, readAt: null } }),
+      ]);
+      return {
+        ...response(data),
+        unread,
+        pagination: {
+          page: v.page,
+          page_size: v.page_size,
+          total,
+          total_pages: Math.ceil(total / v.page_size),
+        },
+      };
+    },
+  );
+  app.patch(
+    "/api/v1/notifications/:id/read",
+    {
+      preHandler: async (q: any, r: any) => {
+        const m = await context(q, r);
+        if (m) q.member = m;
+      },
+    },
+    async (q: any, r: any) => {
+      const n = await db.notification.findFirst({
+        where: {
+          id: q.params.id,
+          organizationId: q.member.organizationId,
+          recipientId: q.member.userId,
+        },
+      });
+      if (!n)
+        return r
+          .status(404)
+          .send(error("NOT_FOUND", "Notification not found."));
+      return response(
+        await db.notification.update({
+          where: { id: n.id },
+          data: { readAt: n.readAt || new Date() },
+        }),
+      );
+    },
+  );
+  app.post(
+    "/api/v1/notifications/read-all",
+    {
+      preHandler: async (q: any, r: any) => {
+        const m = await context(q, r);
+        if (m) q.member = m;
+      },
+    },
+    async (q: any) => {
+      await db.notification.updateMany({
+        where: {
+          organizationId: q.member.organizationId,
+          recipientId: q.member.userId,
+          readAt: null,
+        },
+        data: { readAt: new Date() },
+      });
+      return response({});
+    },
+  );
+
+  app.get("/api/v1/realtime/events", async (q: any, r: any) => {
+    const m = await context(q, r);
+    if (!m) return;
+    r.hijack();
+    r.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin":
+        process.env.FRONTEND_URL || "http://localhost:3000",
+      "Access-Control-Allow-Credentials": "true",
+    });
+    const send = (event: string, payload: any) =>
+      r.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    send("connected", { timestamp: new Date().toISOString() });
+    const stop = subscribe(m.userId, send),
+      heartbeat = setInterval(() => r.raw.write(": heartbeat\n\n"), 25000);
+    q.raw.on("close", () => {
+      clearInterval(heartbeat);
+      stop();
+    });
+  });
 }
