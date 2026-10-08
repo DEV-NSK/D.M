@@ -16,7 +16,7 @@ const types = [
   "CLIENT_COMMUNICATION",
   "OTHER",
 ];
-export function TaskForm({ task }: any) {
+export function TaskForm({ task, role }: any) {
   const router = useRouter(),
     params = useSearchParams(),
     [campaigns, setCampaigns] = useState<any[]>([]),
@@ -40,12 +40,12 @@ export function TaskForm({ task }: any) {
     });
   }, []);
   useEffect(() => {
-    if (teamId)
-      fetch(`${api}/teams/${teamId}`, { credentials: "include" })
+    if (teamId && role === "TEAM_LEAD")
+      fetch(`${api}/teams/${teamId}/employees`, { credentials: "include" })
         .then((r) => r.json())
-        .then((x) => setMembers(x.data?.members || []));
+        .then((x) => setMembers(x.data || []));
     else setMembers([]);
-  }, [teamId]);
+  }, [teamId, role]);
   const campaign = campaigns.find((c) => c.id === campaignId),
     eligibleTeams = campaign
       ? teams.filter((t) =>
@@ -150,7 +150,7 @@ export function TaskForm({ task }: any) {
               ))}
             </select>
           </label>
-          <label>
+          {role === "TEAM_LEAD" && <label>
             Primary assignee
             <select
               name="assigneeId"
@@ -162,12 +162,12 @@ export function TaskForm({ task }: any) {
             >
               <option value="">Unassigned</option>
               {members.map((m) => (
-                <option value={m.user.id} key={m.user.id}>
-                  {m.user.name}
+                <option value={m.id} key={m.id}>
+                  {m.name}
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
         </div>
       </section>
       <section className="card">

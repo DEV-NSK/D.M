@@ -19,6 +19,7 @@ const taskTypes = [
 const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 const statuses = [
   "TODO",
+  "ASSIGNED",
   "IN_PROGRESS",
   "IN_REVIEW",
   "REVISION_REQUIRED",
@@ -48,6 +49,7 @@ const listInput = z.object({
   campaign_id: z.string().optional(),
   client_id: z.string().optional(),
   team_id: z.string().optional(),
+  team_lead_id: z.string().optional(),
   assignee_id: z.string().optional(),
   due: z.enum(["today", "overdue", "upcoming"]).optional(),
   sort: z
@@ -81,7 +83,7 @@ export async function registerTaskRoutes(
         ...taskScope(m),
       },
     });
-  const event = (
+  const event = async (
     tx: any,
     m: any,
     taskId: string,
@@ -89,8 +91,8 @@ export async function registerTaskRoutes(
     description: string,
     previousValue?: any,
     newValue?: any,
-  ) =>
-    tx.taskActivity.create({
+  ) => {
+    const activity = await tx.taskActivity.create({
       data: {
         organizationId: m.organizationId,
         taskId,
@@ -101,6 +103,9 @@ export async function registerTaskRoutes(
         newValue,
       },
     });
+    await tx.activityLog.create({ data: { organizationId: m.organizationId, actorUserId: m.userId, action: type, entityType: "task", entityId: taskId, metadata: { description, previousValue, newValue } } });
+    return activity;
+  };
   const ensureTeamAccess = async (m: any, teamId: string) =>
     m.role === "CEO" ||
     !!(await db.team.findFirst({
@@ -128,6 +133,8 @@ export async function registerTaskRoutes(
       return "Campaign and team must be related and belong to your organization.";
     if (!(await ensureTeamAccess(m, teamId)))
       return "You cannot create or assign work for this team.";
+    if (assigneeId && m.role !== "TEAM_LEAD")
+      return "Only a Team Lead can assign tasks.";
     if (
       assigneeId &&
       !(await db.teamMember.findFirst({
@@ -135,6 +142,7 @@ export async function registerTaskRoutes(
           teamId,
           userId: assigneeId,
           team: { organizationId: m.organizationId },
+          user: { memberships: { some: { organizationId: m.organizationId, role: "EMPLOYEE", status: "ACTIVE" } } },
         },
       }))
     )
@@ -157,7 +165,9 @@ export async function registerTaskRoutes(
       if (v.campaign_id) where.campaignId = v.campaign_id;
       if (v.client_id) where.campaign = { clientId: v.client_id };
       if (v.team_id) where.teamId = v.team_id;
-      if (v.assignee_id) where.assignees = { some: { userId: v.assignee_id } };
+      if (v.team_lead_id && q.member.role !== "EMPLOYEE") where.team = { ...(where.team || {}), teamLeadId: v.team_lead_id };
+      if (v.assignee_id && q.member.role !== "EMPLOYEE")
+        where.assignees = { some: { userId: v.assignee_id } };
       const start = new Date();
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
@@ -168,6 +178,7 @@ export async function registerTaskRoutes(
       if (v.search)
         where.OR = [
           { title: { contains: v.search, mode: "insensitive" } },
+          { description: { contains: v.search, mode: "insensitive" } },
           { campaign: { name: { contains: v.search, mode: "insensitive" } } },
           {
             campaign: {
@@ -235,6 +246,7 @@ export async function registerTaskRoutes(
         const task = await tx.task.create({
           data: {
             ...data,
+            status: assigneeId ? "ASSIGNED" : "TODO",
             organizationId: q.member.organizationId,
             createdBy: q.member.userId,
             updatedBy: q.member.userId,
@@ -249,6 +261,10 @@ export async function registerTaskRoutes(
               assignmentType: "PRIMARY",
               assignedBy: q.member.userId,
             },
+          });
+        if (assigneeId)
+          await tx.taskAssignmentHistory.create({
+            data: { organizationId: q.member.organizationId, taskId: task.id, assignedTo: assigneeId, assignedBy: q.member.userId },
           });
         await event(
           tx,
@@ -316,6 +332,10 @@ export async function registerTaskRoutes(
               include: { actor: { select: { id: true, name: true } } },
               orderBy: { createdAt: "desc" },
             },
+            assignmentHistory: {
+              include: { employee: { select: { id: true, name: true } }, actor: { select: { id: true, name: true } } },
+              orderBy: { assignedAt: "desc" },
+            },
             submissions: {
               include: {
                 submitter: { select: { id: true, name: true } },
@@ -371,6 +391,8 @@ export async function registerTaskRoutes(
           data: { ...data, updatedBy: q.member.userId },
         });
         if (assigneeId !== undefined) {
+          if (q.member.role !== "TEAM_LEAD") throw Object.assign(new Error("Only a Team Lead can assign tasks."), { statusCode: 403 });
+          await tx.taskAssignmentHistory.updateMany({ where: { organizationId: q.member.organizationId, taskId: current.id, unassignedAt: null }, data: { unassignedAt: new Date() } });
           await tx.taskAssignee.deleteMany({
             where: { taskId: current.id, assignmentType: "PRIMARY" },
           });
@@ -384,6 +406,9 @@ export async function registerTaskRoutes(
                 assignedBy: q.member.userId,
               },
             });
+          if (assigneeId)
+            await tx.taskAssignmentHistory.create({ data: { organizationId: q.member.organizationId, taskId: current.id, assignedTo: assigneeId, assignedBy: q.member.userId } });
+          await tx.task.update({ where: { id: current.id }, data: { status: assigneeId && current.status === "TODO" ? "ASSIGNED" : !assigneeId && current.status === "ASSIGNED" ? "TODO" : current.status } });
         }
         await event(
           tx,
@@ -421,6 +446,7 @@ export async function registerTaskRoutes(
       if (!task)
         return r.status(404).send(fail("NOT_FOUND", "Task not found."));
       const { status } = z.object({ status: z.enum(statuses) }).parse(q.body);
+      if (["CEO", "MANAGER"].includes(q.member.role)) return r.status(403).send(fail("FORBIDDEN", "This role has task oversight access only."));
       if (!canTransition(task.status, status))
         return r
           .status(422)
@@ -430,7 +456,11 @@ export async function registerTaskRoutes(
               `${task.status} cannot transition to ${status}.`,
             ),
           );
-      if (["IN_REVIEW", "COMPLETED", "REVISION_REQUIRED"].includes(status))
+      if (q.member.role === "EMPLOYEE" && !["IN_PROGRESS", "COMPLETED"].includes(status))
+        return r.status(403).send(fail("FORBIDDEN", "Employees may only start or complete their assigned tasks."));
+      if (status === "COMPLETED" && task.requiresClientReview)
+        return r.status(422).send(fail("REVIEW_REQUIRED", "This task must be submitted and approved before completion."));
+      if (["IN_REVIEW", "REVISION_REQUIRED"].includes(status))
         return r
           .status(422)
           .send(
@@ -464,6 +494,8 @@ export async function registerTaskRoutes(
         );
         return x;
       });
+      const recipients = await db.membership.findMany({ where: { organizationId: q.member.organizationId, status: "ACTIVE", OR: [{ userId: q.member.userId }, { role: { in: ["CEO", "MANAGER"] } }, { userId: { in: (await db.taskAssignee.findMany({ where: { taskId: task.id }, select: { userId: true } })).map((a: any) => a.userId) } }] }, select: { userId: true } });
+      publish(recipients.map((x: any) => x.userId), "task.status_changed", { taskId: task.id, status });
       return ok(updated);
     },
   );
@@ -499,7 +531,7 @@ export async function registerTaskRoutes(
           data: {
             progressPercentage: progress,
             status:
-              task.status === "TODO" && progress > 0
+              ["TODO", "ASSIGNED"].includes(task.status) && progress > 0
                 ? "IN_PROGRESS"
                 : task.status,
             updatedBy: q.member.userId,
@@ -542,6 +574,7 @@ export async function registerTaskRoutes(
     "/api/v1/tasks/:id/assignees",
     { preHandler: guard("tasks.manage") },
     async (q: any, r: any) => {
+      if (q.member.role !== "TEAM_LEAD") return r.status(403).send(fail("FORBIDDEN", "Only a Team Lead can assign tasks."));
       const task: any = await visible(q.member, q.params.id);
       if (!task)
         return r.status(404).send(fail("NOT_FOUND", "Task not found."));
@@ -559,6 +592,7 @@ export async function registerTaskRoutes(
             teamId: task.teamId,
             userId: v.userId,
             team: { organizationId: q.member.organizationId },
+            user: { memberships: { some: { organizationId: q.member.organizationId, role: "EMPLOYEE", status: "ACTIVE" } } },
           },
         }))
       )
@@ -568,6 +602,8 @@ export async function registerTaskRoutes(
             fail("INVALID_ASSIGNEE", "Assignee must belong to the task team."),
           );
       const result = await db.$transaction(async (tx: any) => {
+        if (v.assignmentType === "PRIMARY")
+          await tx.taskAssignmentHistory.updateMany({ where: { organizationId: q.member.organizationId, taskId: task.id, unassignedAt: null }, data: { unassignedAt: new Date() } });
         if (v.assignmentType === "PRIMARY")
           await tx.taskAssignee.deleteMany({
             where: { taskId: task.id, assignmentType: "PRIMARY" },
@@ -586,6 +622,10 @@ export async function registerTaskRoutes(
             assignedAt: new Date(),
           },
         });
+        if (v.assignmentType === "PRIMARY") {
+          await tx.taskAssignmentHistory.create({ data: { organizationId: q.member.organizationId, taskId: task.id, assignedTo: v.userId, assignedBy: q.member.userId } });
+          if (task.status === "TODO") await tx.task.update({ where: { id: task.id }, data: { status: "ASSIGNED", updatedBy: q.member.userId } });
+        }
         await event(
           tx,
           q.member,
@@ -600,11 +640,51 @@ export async function registerTaskRoutes(
       return r.status(201).send(ok(result));
     },
   );
+
+  app.post(
+    "/api/v1/tasks/:id/assign",
+    { preHandler: guard("tasks.assign") },
+    async (q: any, r: any) => {
+      if (q.member.role !== "TEAM_LEAD") return r.status(403).send(fail("FORBIDDEN", "Only a Team Lead can assign tasks."));
+      const task: any = await visible(q.member, q.params.id);
+      if (!task) return r.status(404).send(fail("NOT_FOUND", "Task not found."));
+      const { employeeId } = z.object({ employeeId: z.string() }).parse(q.body);
+      const eligible = await db.teamMember.findFirst({ where: { teamId: task.teamId, userId: employeeId, team: { organizationId: q.member.organizationId, teamLeadId: q.member.userId }, user: { memberships: { some: { organizationId: q.member.organizationId, role: "EMPLOYEE", status: "ACTIVE" } } } }, include: { user: { select: { id: true, name: true } } } });
+      if (!eligible) return r.status(422).send(fail("INVALID_ASSIGNEE", "This employee is not available for assignment."));
+      const previous = await db.taskAssignee.findFirst({ where: { taskId: task.id, assignmentType: "PRIMARY" } });
+      const assignment = await db.$transaction(async (tx: any) => {
+        await tx.taskAssignmentHistory.updateMany({ where: { organizationId: q.member.organizationId, taskId: task.id, unassignedAt: null }, data: { unassignedAt: new Date() } });
+        await tx.taskAssignee.deleteMany({ where: { taskId: task.id, assignmentType: "PRIMARY" } });
+        const current = await tx.taskAssignee.create({ data: { organizationId: q.member.organizationId, taskId: task.id, userId: employeeId, assignmentType: "PRIMARY", assignedBy: q.member.userId } });
+        const history = await tx.taskAssignmentHistory.create({ data: { organizationId: q.member.organizationId, taskId: task.id, assignedTo: employeeId, assignedBy: q.member.userId } });
+        await tx.task.update({ where: { id: task.id }, data: { status: task.status === "TODO" ? "ASSIGNED" : task.status, updatedBy: q.member.userId } });
+        await event(tx, q.member, task.id, previous ? "TASK_REASSIGNED" : "TASK_ASSIGNED", `${previous ? "Reassigned" : "Assigned"} to ${eligible.user.name}`, previous?.userId, employeeId);
+        return { ...current, history };
+      });
+      const watchers = await db.membership.findMany({ where: { organizationId: q.member.organizationId, role: { in: ["CEO", "MANAGER"] }, status: "ACTIVE" }, select: { userId: true } });
+      publish([employeeId, q.member.userId, ...watchers.map((x: any) => x.userId)], previous ? "task.reassigned" : "task.assigned", { taskId: task.id });
+      return r.status(201).send(ok(assignment));
+    },
+  );
+
+  app.get("/api/v1/tasks/:id/assignment-history", { preHandler: guard("tasks.view") }, async (q: any, r: any) => {
+    if (!(await visible(q.member, q.params.id))) return r.status(404).send(fail("NOT_FOUND", "Task not found."));
+    return ok(await db.taskAssignmentHistory.findMany({ where: { organizationId: q.member.organizationId, taskId: q.params.id }, include: { employee: { select: { id: true, name: true } }, actor: { select: { id: true, name: true } } }, orderBy: { assignedAt: "desc" } }));
+  });
+
+  app.get("/api/v1/teams/:id/employees", { preHandler: guard("tasks.assign") }, async (q: any, r: any) => {
+    if (q.member.role !== "TEAM_LEAD") return r.status(403).send(fail("FORBIDDEN", "Only a Team Lead can view assignment candidates."));
+    const team = await db.team.findFirst({ where: { id: q.params.id, organizationId: q.member.organizationId, teamLeadId: q.member.userId } });
+    if (!team) return r.status(404).send(fail("NOT_FOUND", "Team not found."));
+    const rows = await db.teamMember.findMany({ where: { teamId: team.id, user: { memberships: { some: { organizationId: q.member.organizationId, role: "EMPLOYEE", status: "ACTIVE" } } } }, select: { user: { select: { id: true, name: true, email: true, jobTitle: true } } }, orderBy: { user: { name: "asc" } } });
+    return ok(rows.map((x: any) => x.user));
+  });
   app.delete(
     "/api/v1/tasks/:id/assignees/:userId",
     { preHandler: guard("tasks.manage") },
     async (q: any, r: any) => {
-      const task = await visible(q.member, q.params.id);
+      if (q.member.role !== "TEAM_LEAD") return r.status(403).send(fail("FORBIDDEN", "Only a Team Lead can unassign tasks."));
+      const task: any = await visible(q.member, q.params.id);
       if (!task)
         return r.status(404).send(fail("NOT_FOUND", "Task not found."));
       await db.taskAssignee.deleteMany({
@@ -614,6 +694,8 @@ export async function registerTaskRoutes(
           organizationId: q.member.organizationId,
         },
       });
+      await db.taskAssignmentHistory.updateMany({ where: { organizationId: q.member.organizationId, taskId: task.id, assignedTo: q.params.userId, unassignedAt: null }, data: { unassignedAt: new Date() } });
+      if (task.status === "ASSIGNED") await db.task.update({ where: { id: task.id }, data: { status: "TODO", updatedBy: q.member.userId } });
       return ok({});
     },
   );
@@ -1075,6 +1157,23 @@ export async function registerTaskRoutes(
       return ok({ total, inProgress, inReview, overdue, completed, dueToday });
     },
   );
+  app.get("/api/v1/task-board/options", { preHandler: guard("tasks.view") }, async (q: any) => {
+    const rows = await db.task.findMany({
+      where: { organizationId: q.member.organizationId, archivedAt: null, ...taskScope(q.member) },
+      select: {
+        team: { select: { id: true, name: true, teamLead: { select: { id: true, name: true } } } },
+        campaign: { select: { id: true, name: true } },
+        assignees: { where: { assignmentType: "PRIMARY" }, select: { user: { select: { id: true, name: true } } } },
+      },
+    });
+    const unique = (items: any[]) => [...new Map(items.filter(Boolean).map((x: any) => [x.id, x])).values()];
+    return ok({
+      teams: unique(rows.map((x: any) => x.team)),
+      campaigns: unique(rows.map((x: any) => x.campaign)),
+      employees: unique(rows.flatMap((x: any) => x.assignees.map((a: any) => a.user))),
+      teamLeads: q.member.role === "CEO" || q.member.role === "MANAGER" ? unique(rows.map((x: any) => x.team.teamLead)) : [],
+    });
+  });
   app.get(
     "/api/v1/teams/:id/tasks/summary",
     { preHandler: guard("tasks.view") },

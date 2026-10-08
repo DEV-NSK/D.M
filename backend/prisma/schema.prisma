@@ -85,6 +85,7 @@ enum TaskPriority {
 
 enum TaskStatus {
   TODO
+  ASSIGNED
   IN_PROGRESS
   IN_REVIEW
   REVISION_REQUIRED
@@ -154,6 +155,8 @@ model User {
   updatedTasks        Task[]                   @relation("TaskUpdater")
   taskAssignments     TaskAssignee[]           @relation("TaskAssignedUser")
   assignedTasks       TaskAssignee[]           @relation("TaskAssigner")
+  assignmentHistoryAsEmployee TaskAssignmentHistory[] @relation("TaskAssignmentEmployee")
+  assignmentHistoryAsActor TaskAssignmentHistory[] @relation("TaskAssignmentActor")
   taskSubtasks        TaskSubtask[]            @relation("TaskSubtaskCreator")
   taskComments        TaskComment[]            @relation("TaskCommentAuthor")
   taskActivities      TaskActivity[]           @relation("TaskActivityActor")
@@ -192,6 +195,7 @@ model Organization {
   campaignActivities  CampaignActivity[]
   tasks               Task[]
   taskAssignees       TaskAssignee[]
+  taskAssignmentHistory TaskAssignmentHistory[]
   taskSubtasks        TaskSubtask[]
   taskComments        TaskComment[]
   taskActivities      TaskActivity[]
@@ -494,6 +498,7 @@ model Task {
   creator            User              @relation("TaskCreator", fields: [createdBy], references: [id])
   updater            User              @relation("TaskUpdater", fields: [updatedBy], references: [id])
   assignees          TaskAssignee[]
+  assignmentHistory TaskAssignmentHistory[]
   subtasks           TaskSubtask[]
   comments           TaskComment[]
   activities         TaskActivity[]
@@ -525,6 +530,24 @@ model TaskAssignee {
 
   @@unique([taskId, userId])
   @@index([organizationId, userId])
+}
+
+model TaskAssignmentHistory {
+  id             String       @id @default(cuid())
+  organizationId String
+  taskId         String
+  assignedTo     String
+  assignedBy     String
+  assignedAt     DateTime     @default(now())
+  unassignedAt   DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task           Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee       User         @relation("TaskAssignmentEmployee", fields: [assignedTo], references: [id])
+  actor          User         @relation("TaskAssignmentActor", fields: [assignedBy], references: [id])
+
+  @@index([organizationId, taskId, assignedAt])
+  @@index([organizationId, assignedTo])
 }
 
 model TaskSubtask {
